@@ -3,11 +3,11 @@ from __future__ import annotations
 from typing import List
 
 from ...models import BugReport, DataIncident
-from .llm_service import OllamaService
+from .llm_service import LLMClient
 
 
 class ExplanationGenerator:
-    def __init__(self, llm: OllamaService):
+    def __init__(self, llm: LLMClient):
         self.llm = llm
 
     async def generate_root_cause_explanation(
@@ -83,4 +83,3 @@ class ExplanationGenerator:
         """
 
         return await self.llm.generate(prompt, system_prompt)
-

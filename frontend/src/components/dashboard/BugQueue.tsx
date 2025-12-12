@@ -1,4 +1,4 @@
-import { BugReport } from "../../types";
+import type { BugReport } from "../../types";
 
 type Props = {
   bugs: BugReport[];

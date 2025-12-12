@@ -1,5 +1,5 @@
 import { api } from "./client";
-import { BugReport, DataIncident } from "../types";
+import type { BugReport, DataIncident } from "../types";
 
 export const incidentsApi = {
   getAll: async (params?: { status?: string; severity?: string }) => {
@@ -17,4 +17,3 @@ export const incidentsApi = {
     return data;
   },
 };
-

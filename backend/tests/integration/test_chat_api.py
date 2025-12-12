@@ -10,10 +10,17 @@ from src.models import DataIncident
 def test_chat_fallback_when_ollama_unavailable(db_sessionmaker, monkeypatch):
     from src.api.routes import chat as chat_routes
 
-    async def fake_is_available(self):  # noqa: ANN001
-        return False
+    class FakeLLM:
+        provider = "test"
+        model = "test-model"
 
-    monkeypatch.setattr(chat_routes.OllamaService, "is_available", fake_is_available)
+        async def is_available(self):  # noqa: ANN001
+            return False
+
+        async def generate(self, prompt, system=None):  # noqa: ANN001
+            return "should not be called"
+
+    monkeypatch.setattr(chat_routes, "get_llm_service", lambda _settings: FakeLLM())
 
     def override_get_db():
         db = db_sessionmaker()
@@ -54,4 +61,3 @@ def test_chat_fallback_when_ollama_unavailable(db_sessionmaker, monkeypatch):
     assert "user_transactions" in payload["response"]
 
     app.dependency_overrides.clear()
-

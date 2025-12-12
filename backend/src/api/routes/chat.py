@@ -7,7 +7,7 @@ from ...api.deps import get_db
 from ...config import get_settings
 from ...models import BugIncidentCorrelation, BugReport, DataIncident
 from ...schemas.chat import ChatRequest, ChatResponse
-from ...services.intelligence.llm_service import OllamaService
+from ...services.intelligence.llm_service import get_llm_service
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 
@@ -117,12 +117,12 @@ async def chat(payload: ChatRequest, db: Session = Depends(get_db)) -> ChatRespo
     )
 
     settings = get_settings()
-    llm = OllamaService(host=settings.ollama_host)
+    llm = get_llm_service(settings)
 
     try:
         if not await llm.is_available():
             fallback = (
-                "LLM is unavailable. Start Ollama and try again.\n"
+                "LLM is unavailable. Configure OPEN_ROUTER_API_KEY or start Ollama.\n"
                 + (f"\nContext:\n{context}\n" if context else "")
             ).strip()
             return ChatResponse(response=fallback, used_llm=False, model=None)
@@ -132,8 +132,7 @@ async def chat(payload: ChatRequest, db: Session = Depends(get_db)) -> ChatRespo
     except Exception as exc:
         fallback = (
             f"LLM request failed: {type(exc).__name__}. "
-            "Check Ollama logs and retry.\n"
+            "Check your LLM provider settings and retry.\n"
             + (f"\nContext:\n{context}\n" if context else "")
         ).strip()
         return ChatResponse(response=fallback, used_llm=False, model=None)
-

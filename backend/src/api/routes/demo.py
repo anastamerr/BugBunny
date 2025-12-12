@@ -22,7 +22,7 @@ from ...schemas.prediction import BugPredictionRead
 from ...services.bug_triage import AutoRouter, BugClassifier
 from ...services.correlation.temporal_matcher import TemporalMatcher
 from ...services.intelligence.explanation_generator import ExplanationGenerator
-from ...services.intelligence.llm_service import OllamaService
+from ...services.intelligence.llm_service import get_llm_service
 from ...services.intelligence.prediction_engine import PredictionEngine
 
 router = APIRouter(prefix="/demo", tags=["demo"])
@@ -169,16 +169,19 @@ async def inject_bug(
 
             if payload.generate_explanation:
                 settings = get_settings()
-                llm = OllamaService(host=settings.ollama_host)
+                llm = get_llm_service(settings)
                 explanation = (
                     f"Likely root cause: {matched_incident.incident_type} in "
                     f"{matched_incident.table_name} affecting {bug.classified_component}."
                 )
-                if await llm.is_available():
-                    generator = ExplanationGenerator(llm)
-                    explanation = await generator.generate_root_cause_explanation(
-                        bug, matched_incident, score
-                    )
+                try:
+                    if await llm.is_available():
+                        generator = ExplanationGenerator(llm)
+                        explanation = await generator.generate_root_cause_explanation(
+                            bug, matched_incident, score
+                        )
+                except Exception:
+                    pass
                 corr.explanation = explanation
 
             db.add(corr)

@@ -15,13 +15,14 @@
 - [x] Auto-predictions on incident creation (API + demo)
 - [x] Supabase-ready compose: no local Postgres; backend uses `backend/.env` (gitignored)
 - [x] Backend tests in place (pytest)
+- [x] Supabase connected + migrations applied (Alembic)
+- [x] GitHub webhook + ngrok verified (issues + comments ingest)
+- [x] GitHub backfill run at least once
+- [x] Frontend: `/bugs/:id` detail page (GitHub link, duplicates, comments)
+- [x] LLM: OpenRouter support (`OPEN_ROUTER_API_KEY`) + provider auto-selection
 
-### Pending / Next (ops + verification)
-- [x] Ensure Supabase `DATABASE_URL` uses an IPv4-reachable host (prefer Supabase Session Pooler) + `sslmode=require`
-- [x] Run DB migrations on Supabase: `cd backend && python -m alembic upgrade head`
-- [x] Run initial GitHub backfill: `cd backend && python -m src.integrations.github_backfill`
-- [x] Configure ngrok authtoken + expose port `8000`, then set GitHub webhook URL to `https://<ngrok-host>/api/webhooks/github`
-- [ ] Pull Ollama model locally (e.g. Llama 3) if using real chat/explanations
+### Remaining / Next
+- [ ] Optional: run Ollama locally (only if not using OpenRouter)
 
 ## Project Overview
 

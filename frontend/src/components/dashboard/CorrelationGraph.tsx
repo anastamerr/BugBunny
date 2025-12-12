@@ -11,7 +11,7 @@ import {
 } from "recharts";
 
 import { correlationsApi } from "../../api/correlations";
-import { Correlation } from "../../types";
+import type { Correlation } from "../../types";
 
 type Datum = {
   key: string;

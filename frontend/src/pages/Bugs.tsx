@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { Link } from "react-router-dom";
 
 import { bugsApi } from "../api/bugs";
 
@@ -28,7 +29,11 @@ export default function Bugs() {
           <tbody>
             {(data || []).map((b) => (
               <tr key={b.id} className="border-t">
-                <td className="px-4 py-2 font-medium">{b.title}</td>
+                <td className="px-4 py-2 font-medium">
+                  <Link to={`/bugs/${b.id}`} className="hover:underline">
+                    {b.title}
+                  </Link>
+                </td>
                 <td className="px-4 py-2">{b.classified_component}</td>
                 <td className="px-4 py-2">{b.classified_severity}</td>
                 <td className="px-4 py-2">{b.assigned_team || "-"}</td>

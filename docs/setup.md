@@ -14,6 +14,9 @@ Required:
 Optional:
 - `GITHUB_BACKFILL_LIMIT` (default `50`)
 - `GITHUB_BACKFILL_ON_START` (default `false`)
+- LLM (pick one):
+  - Local Ollama: `OLLAMA_HOST` (default `http://ollama:11434`), optional `OLLAMA_MODEL`
+  - OpenRouter: `OPEN_ROUTER_API_KEY` (if set, backend uses OpenRouter by default), optional `OPEN_ROUTER_MODEL`
 
 ## 2) Run DB migrations (Supabase)
 

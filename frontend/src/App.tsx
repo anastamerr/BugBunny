@@ -3,6 +3,7 @@ import { BrowserRouter, Route, Routes } from "react-router-dom";
 
 import { Layout } from "./components/layout/Layout";
 import Bugs from "./pages/Bugs";
+import BugDetail from "./pages/BugDetail";
 import Chat from "./pages/Chat";
 import Correlations from "./pages/Correlations";
 import Dashboard from "./pages/Dashboard";
@@ -21,6 +22,7 @@ export default function App() {
             <Route index element={<Dashboard />} />
             <Route path="incidents" element={<Incidents />} />
             <Route path="bugs" element={<Bugs />} />
+            <Route path="bugs/:id" element={<BugDetail />} />
             <Route path="correlations" element={<Correlations />} />
             <Route path="predictions" element={<Predictions />} />
             <Route path="chat" element={<Chat />} />

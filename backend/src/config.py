@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from functools import lru_cache
+from pathlib import Path
 from typing import Optional
 
 try:
@@ -17,6 +18,14 @@ class Settings(BaseSettings):
     pinecone_api_key: Optional[str] = None
     pinecone_environment: Optional[str] = None
     ollama_host: str = "http://ollama:11434"
+    ollama_model: str = "llama3:8b"
+
+    llm_provider: str = "auto"  # auto | ollama | openrouter
+    open_router_api_key: Optional[str] = None
+    open_router_model: str = "meta-llama/llama-3.1-8b-instruct"
+    open_router_base_url: str = "https://openrouter.ai/api/v1"
+    open_router_site_url: Optional[str] = None
+    open_router_app_name: Optional[str] = None
     api_prefix: str = "/api"
 
     github_token: Optional[str] = None
@@ -27,14 +36,15 @@ class Settings(BaseSettings):
     github_backfill_on_start: bool = False
 
     if SettingsConfigDict is not None:
+        _ENV_FILE = Path(__file__).resolve().parents[1] / ".env"
         model_config = SettingsConfigDict(
-            env_file=".env",
+            env_file=str(_ENV_FILE),
             env_file_encoding="utf-8",
             extra="ignore",
         )
     else:  # pragma: no cover
         class Config:
-            env_file = ".env"
+            env_file = str(Path(__file__).resolve().parents[1] / ".env")
             env_file_encoding = "utf-8"
             extra = "ignore"
 

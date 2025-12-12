@@ -24,18 +24,25 @@ export interface BugReport {
   bug_id: string;
   source: "github" | "jira" | "manual";
   title: string;
-  description: string;
+  description?: string | null;
   created_at: string;
+  reporter?: string | null;
+  labels?: any;
+  stack_trace?: string | null;
   classified_type: "bug" | "feature" | "question";
   classified_component: string;
   classified_severity: "critical" | "high" | "medium" | "low";
+  confidence_score?: number | null;
   is_data_related: boolean;
+  correlated_incident_id?: string | null;
   correlation_score?: number;
-  correlated_incident?: DataIncident;
   is_duplicate: boolean;
-  duplicate_of?: BugReport;
+  duplicate_of_id?: string | null;
+  duplicate_score?: number | null;
   assigned_team?: string;
   status: "new" | "triaged" | "assigned" | "resolved";
+  resolution_notes?: string | null;
+  embedding_id?: string | null;
 }
 
 export interface Correlation {
@@ -54,4 +61,3 @@ export interface BugPrediction {
   confidence: number;
   prediction_window_hours: number;
 }
-

@@ -1,5 +1,5 @@
 import { api } from "./client";
-import { Correlation } from "../types";
+import type { Correlation } from "../types";
 
 export const correlationsApi = {
   getAll: async (params?: { bug_id?: string; incident_id?: string }) => {
@@ -14,4 +14,3 @@ export const correlationsApi = {
     return data;
   },
 };
-

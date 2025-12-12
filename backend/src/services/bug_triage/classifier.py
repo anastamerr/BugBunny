@@ -25,6 +25,12 @@ class BugClassifier:
         self.severity_encoder = LabelEncoder()
 
         self._load_or_train_models()
+        if (
+            self.type_classifier is None
+            or self.component_classifier is None
+            or self.severity_classifier is None
+        ):
+            self._train_on_sample_data()
 
     def _load_or_train_models(self) -> None:
         try:
@@ -36,12 +42,12 @@ class BugClassifier:
             if models.get("version") != self.MODEL_VERSION:
                 raise ValueError("Model version mismatch")
 
-                self.type_classifier = models["type"]
-                self.component_classifier = models["component"]
-                self.severity_classifier = models["severity"]
-                self.type_encoder = models["type_encoder"]
-                self.component_encoder = models["component_encoder"]
-                self.severity_encoder = models["severity_encoder"]
+            self.type_classifier = models["type"]
+            self.component_classifier = models["component"]
+            self.severity_classifier = models["severity"]
+            self.type_encoder = models["type_encoder"]
+            self.component_encoder = models["component_encoder"]
+            self.severity_encoder = models["severity_encoder"]
         except (FileNotFoundError, KeyError, ValueError, pickle.UnpicklingError):
             self._train_on_sample_data()
 
@@ -154,6 +160,13 @@ class BugClassifier:
             )
 
     def classify(self, title: str, description: str) -> Dict:
+        if (
+            self.type_classifier is None
+            or self.component_classifier is None
+            or self.severity_classifier is None
+        ):
+            self._train_on_sample_data()
+
         text = f"{title} {description}"
         embedding = self.encoder.encode([text])
 

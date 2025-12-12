@@ -1,4 +1,4 @@
-import { DataIncident } from "../../types";
+import type { DataIncident } from "../../types";
 
 type Props = {
   incidents: DataIncident[];

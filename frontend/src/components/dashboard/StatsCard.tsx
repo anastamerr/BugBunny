@@ -1,4 +1,4 @@
-import { ReactNode } from "react";
+import type { ReactNode } from "react";
 
 type Props = {
   title: string;
@@ -19,4 +19,3 @@ export function StatsCard({ title, value, subtitle, icon }: Props) {
     </div>
   );
 }
-
