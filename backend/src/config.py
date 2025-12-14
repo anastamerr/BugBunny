@@ -14,6 +14,8 @@ except ImportError:  # pragma: no cover
 
 class Settings(BaseSettings):
     database_url: str = "postgresql://postgres:postgres@db:5432/databug"
+    # Optional override used only for Alembic migrations (e.g. Supabase Session Pooler).
+    alembic_database_url: Optional[str] = None
     redis_url: str = "redis://redis:6379/0"
     pinecone_api_key: Optional[str] = None
     pinecone_environment: Optional[str] = None

@@ -1,3 +1,5 @@
+import { Link } from "react-router-dom";
+
 import type { DataIncident } from "../../types";
 
 type Props = {
@@ -29,8 +31,9 @@ export function IncidentFeed({ incidents }: Props) {
         )}
 
         {incidents.map((incident) => (
-          <div
+          <Link
             key={incident.id}
+            to={`/incidents/${incident.id}`}
             className="flex items-center justify-between gap-4 rounded-card border border-white/10 bg-surface px-4 py-3 transition-colors duration-200 ease-fluid hover:border-neon-mint/40"
           >
             <div className="min-w-0">
@@ -42,7 +45,7 @@ export function IncidentFeed({ incidents }: Props) {
               </div>
             </div>
             <span className={statusClass(incident.status)}>{incident.status}</span>
-          </div>
+          </Link>
         ))}
       </div>
     </div>

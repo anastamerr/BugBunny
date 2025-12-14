@@ -24,4 +24,9 @@ export const bugsApi = {
     const { data } = await api.get<DuplicateMatch[]>(`/api/bugs/${id}/duplicates`);
     return data;
   },
+
+  update: async (id: string, payload: Partial<BugReport>) => {
+    const { data } = await api.patch<BugReport>(`/api/bugs/${id}`, payload);
+    return data;
+  },
 };

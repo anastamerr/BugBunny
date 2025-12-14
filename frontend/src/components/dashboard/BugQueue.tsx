@@ -1,3 +1,5 @@
+import { Link } from "react-router-dom";
+
 import type { BugReport } from "../../types";
 
 type Props = {
@@ -20,8 +22,9 @@ export function BugQueue({ bugs }: Props) {
         )}
 
         {bugs.map((bug) => (
-          <div
+          <Link
             key={bug.id}
+            to={`/bugs/${bug.id}`}
             className="flex items-center justify-between gap-4 rounded-card border border-white/10 bg-surface px-4 py-3 transition-colors duration-200 ease-fluid hover:border-neon-mint/40"
           >
             <div className="min-w-0">
@@ -33,7 +36,7 @@ export function BugQueue({ bugs }: Props) {
               </div>
             </div>
             <div className="badge">{bug.status}</div>
-          </div>
+          </Link>
         ))}
       </div>
     </div>

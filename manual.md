@@ -26,11 +26,14 @@ Create/update `backend/.env` (this file is gitignored). Minimum recommended:
   - `OPEN_ROUTER_API_KEY`
   - `OPEN_ROUTER_MODEL` (example: `meta-llama/llama-3.1-8b-instruct`)
 
-Reference template: `.env.example`
+Reference template: `backend/.env.example` (or `.env.example`)
 
 ## 2) Database migrations (Supabase)
 
 From `backend/`:
+
+- If your network can’t resolve `db.<ref>.supabase.co` (IPv6-only), use the Supabase **Session Pooler** connection string.
+- Optional: set `ALEMBIC_DATABASE_URL` (Session Pooler) while keeping `DATABASE_URL` for runtime.
 
 ```powershell
 cd backend
@@ -63,7 +66,7 @@ docker compose up --build
 
 Notes:
 - In compose, backend reads env from `backend/.env` via `env_file`.
-- `ollama` is optional if you’re using OpenRouter.
+- `ollama` is optional if you're using OpenRouter.
 
 ## 4) Start the frontend (port 3000)
 
@@ -121,5 +124,7 @@ cd backend
 ## Troubleshooting
 
 - Supabase connection fails: use Supabase **Session Pooler** host and ensure `sslmode=require`.
+- Alembic uses `db` host: set `DATABASE_URL` in `backend/.env` (see `backend/.env.example`).
+- Supabase `db.<ref>.supabase.co` not resolvable: your network may be IPv4-only while the direct host is IPv6-only; switch to the Supabase **Connection pooling** DATABASE_URL (pooler host).
 - Webhook 401: GitHub secret mismatch or backend `GITHUB_WEBHOOK_SECRET` not set.
 - Frontend build errors (Tailwind): ensure `@tailwindcss/postcss` is installed and `frontend/postcss.config.js` uses it.

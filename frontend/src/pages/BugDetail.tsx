@@ -1,4 +1,5 @@
-import { useQuery } from "@tanstack/react-query";
+import { useRef } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useParams } from "react-router-dom";
 
 import { bugsApi } from "../api/bugs";
@@ -50,8 +51,16 @@ function displayValue(value: unknown) {
   return text.length ? text : "—";
 }
 
+function safeDate(value?: string | null) {
+  if (!value) return "—";
+  const dt = new Date(value);
+  return Number.isNaN(dt.getTime()) ? "—" : dt.toLocaleString();
+}
+
 export default function BugDetail() {
   const { id } = useParams();
+  const queryClient = useQueryClient();
+  const workflowFormRef = useRef<HTMLFormElement | null>(null);
 
   const {
     data: bug,
@@ -68,6 +77,34 @@ export default function BugDetail() {
     queryFn: () => bugsApi.getDuplicates(id as string),
     enabled: Boolean(id),
   });
+
+  const updateBugMutation = useMutation({
+    mutationFn: async (payload: Partial<BugReport>) => bugsApi.update(id as string, payload),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["bugs"] });
+    },
+  });
+
+  async function onSaveWorkflow() {
+    if (!bug || !workflowFormRef.current) return;
+    const data = new FormData(workflowFormRef.current);
+    const status = data.get("status");
+    const assignedTeam = data.get("assigned_team");
+    const notes = data.get("resolution_notes");
+
+    const statusValue =
+      status === "new" || status === "triaged" || status === "assigned" || status === "resolved"
+        ? status
+        : bug.status;
+    const teamValue = typeof assignedTeam === "string" ? assignedTeam.trim() : "";
+    const notesValue = typeof notes === "string" ? notes.trim() : "";
+
+    await updateBugMutation.mutateAsync({
+      status: statusValue,
+      assigned_team: teamValue.length ? teamValue : undefined,
+      resolution_notes: notesValue.length ? notesValue : null,
+    });
+  }
 
   if (!id) {
     return (
@@ -130,9 +167,7 @@ export default function BugDetail() {
             <h1 className="mt-3 truncate text-2xl font-extrabold tracking-tight text-white">
               {bug.title}
             </h1>
-            <p className="mt-1 text-sm text-white/60">
-              Created {new Date(bug.created_at).toLocaleString()}
-            </p>
+            <p className="mt-1 text-sm text-white/60">Created {safeDate(bug.created_at)}</p>
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
@@ -165,48 +200,109 @@ export default function BugDetail() {
           </div>
         </div>
 
-        <div className="surface-solid p-6">
-          <div className="text-xs font-semibold uppercase tracking-[0.2em] text-white/60">
-            Summary
-          </div>
-          <dl className="mt-4 grid grid-cols-2 gap-x-3 gap-y-3 text-sm">
-            <dt className="text-white/60">Reporter</dt>
-            <dd className="font-semibold text-white">{displayValue(bug.reporter)}</dd>
-
-            <dt className="text-white/60">Team</dt>
-            <dd className="font-semibold text-white">
-              {displayValue(bug.assigned_team)}
-            </dd>
-
-            <dt className="text-white/60">Data-related</dt>
-            <dd className="font-semibold text-white">
-              {bug.is_data_related ? "Yes" : "No"}
-            </dd>
-
-            <dt className="text-white/60">Correlation</dt>
-            <dd className="font-semibold text-white">
-              {bug.correlation_score === undefined || bug.correlation_score === null
-                ? "—"
-                : bug.correlation_score.toFixed(3)}
-            </dd>
-
-            <dt className="text-white/60">Duplicate</dt>
-            <dd className="font-semibold text-white">
-              {bug.is_duplicate ? "Yes" : "No"}
-            </dd>
-          </dl>
-
-          {bug.duplicate_of_id ? (
-            <div className="mt-5 text-sm text-white/80">
-              Duplicate of{" "}
-              <Link
-                to={`/bugs/${bug.duplicate_of_id}`}
-                className="font-mono text-neon-mint underline underline-offset-4 hover:opacity-80"
-              >
-                {bug.duplicate_of_id}
-              </Link>
+        <div className="space-y-6">
+          <div className="surface-solid p-6">
+            <div className="text-xs font-semibold uppercase tracking-[0.2em] text-white/60">
+              Summary
             </div>
-          ) : null}
+            <dl className="mt-4 grid grid-cols-2 gap-x-3 gap-y-3 text-sm">
+              <dt className="text-white/60">Reporter</dt>
+              <dd className="font-semibold text-white">
+                {displayValue(bug.reporter)}
+              </dd>
+
+              <dt className="text-white/60">Team</dt>
+              <dd className="font-semibold text-white">
+                {displayValue(bug.assigned_team)}
+              </dd>
+
+              <dt className="text-white/60">Data-related</dt>
+              <dd className="font-semibold text-white">
+                {bug.is_data_related ? "Yes" : "No"}
+              </dd>
+
+              <dt className="text-white/60">Correlation</dt>
+              <dd className="font-semibold text-white">
+                {bug.correlation_score === undefined || bug.correlation_score === null
+                  ? "—"
+                  : bug.correlation_score.toFixed(3)}
+              </dd>
+
+              <dt className="text-white/60">Duplicate</dt>
+              <dd className="font-semibold text-white">
+                {bug.is_duplicate ? "Yes" : "No"}
+              </dd>
+            </dl>
+
+            {bug.duplicate_of_id ? (
+              <div className="mt-5 text-sm text-white/80">
+                Duplicate of{" "}
+                <Link
+                  to={`/bugs/${bug.duplicate_of_id}`}
+                  className="font-mono text-neon-mint underline underline-offset-4 hover:opacity-80"
+                >
+                  {bug.duplicate_of_id}
+                </Link>
+              </div>
+            ) : null}
+          </div>
+
+          <div className="surface-solid p-6">
+            <div className="text-xs font-semibold uppercase tracking-[0.2em] text-white/60">
+              Workflow
+            </div>
+
+            <form ref={workflowFormRef} key={bug.id} className="mt-4 space-y-3">
+              <div>
+                <div className="text-xs font-semibold tracking-[0.2em] text-white/60">
+                  Status
+                </div>
+                <select
+                  className="input mt-2 w-full"
+                  name="status"
+                  defaultValue={bug.status}
+                >
+                  <option value="new">new</option>
+                  <option value="triaged">triaged</option>
+                  <option value="assigned">assigned</option>
+                  <option value="resolved">resolved</option>
+                </select>
+              </div>
+
+              <div>
+                <div className="text-xs font-semibold tracking-[0.2em] text-white/60">
+                  Assigned Team
+                </div>
+                <input
+                  className="input mt-2 w-full"
+                  name="assigned_team"
+                  placeholder="e.g. data_engineering"
+                  defaultValue={bug.assigned_team || ""}
+                />
+              </div>
+
+              <div>
+                <div className="text-xs font-semibold tracking-[0.2em] text-white/60">
+                  Resolution Notes
+                </div>
+                <textarea
+                  className="mt-2 min-h-[96px] w-full resize-y rounded-card border-2 border-white/10 bg-void px-4 py-3 text-sm text-white placeholder-white/30 outline-none transition-colors duration-200 ease-fluid focus:border-neon-mint"
+                  name="resolution_notes"
+                  placeholder="What fixed it? Links to PRs/runbooks/follow-ups..."
+                  defaultValue={bug.resolution_notes || ""}
+                />
+              </div>
+
+              <button
+                type="button"
+                className="btn-primary w-full"
+                onClick={onSaveWorkflow}
+                disabled={updateBugMutation.isPending}
+              >
+                {updateBugMutation.isPending ? "Saving..." : "Save"}
+              </button>
+            </form>
+          </div>
         </div>
       </div>
 
@@ -265,9 +361,7 @@ export default function BugDetail() {
                     <div className="flex flex-wrap items-center justify-between gap-3 text-xs text-white/60">
                       <div className="truncate">
                         {displayValue(comment.user)}
-                        {comment.created_at
-                          ? ` • ${new Date(comment.created_at).toLocaleString()}`
-                          : ""}
+                        {comment.created_at ? ` • ${safeDate(comment.created_at)}` : ""}
                       </div>
                       {comment.url ? (
                         <a
@@ -281,9 +375,7 @@ export default function BugDetail() {
                       ) : null}
                     </div>
                     <div className="mt-3 whitespace-pre-wrap text-sm text-white/80">
-                      {displayValue(comment.body) === "—"
-                        ? "—"
-                        : displayValue(comment.body)}
+                      {displayValue(comment.body)}
                     </div>
                   </div>
                 ))}

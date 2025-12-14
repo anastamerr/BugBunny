@@ -6,6 +6,9 @@ from unittest.mock import MagicMock, patch
 @patch("src.integrations.pinecone_client.Pinecone")
 def test_embed_text_returns_list(mock_pc_cls, mock_encoder_cls, monkeypatch):
     monkeypatch.setenv("PINECONE_API_KEY", "test-key")
+    from src.config import get_settings
+
+    get_settings.cache_clear()
 
     mock_pc = MagicMock()
     mock_pc.list_indexes.return_value = []

@@ -18,6 +18,9 @@ export function RealtimeListener() {
       queryClient.invalidateQueries({ queryKey: ["predictions"] });
 
     socket.on("incident.created", invalidateIncidents);
+    socket.on("incident.updated", invalidateIncidents);
+    socket.on("incident.action.created", invalidateIncidents);
+    socket.on("incident.action.updated", invalidateIncidents);
     socket.on("bug.created", invalidateBugs);
     socket.on("bug.updated", invalidateBugs);
     socket.on("correlation.created", invalidateCorrelations);
@@ -25,6 +28,9 @@ export function RealtimeListener() {
 
     return () => {
       socket.off("incident.created", invalidateIncidents);
+      socket.off("incident.updated", invalidateIncidents);
+      socket.off("incident.action.created", invalidateIncidents);
+      socket.off("incident.action.updated", invalidateIncidents);
       socket.off("bug.created", invalidateBugs);
       socket.off("bug.updated", invalidateBugs);
       socket.off("correlation.created", invalidateCorrelations);

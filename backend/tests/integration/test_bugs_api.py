@@ -58,4 +58,12 @@ def test_create_and_get_bug(db_sessionmaker, monkeypatch):
     assert get_resp.status_code == 200
     assert get_resp.json()["id"] == bug_id
 
+    update_resp = client.patch(
+        f"/api/bugs/{bug_id}",
+        json={"status": "resolved", "resolution_notes": "Patched serializer and added a regression test."},
+    )
+    assert update_resp.status_code == 200
+    assert update_resp.json()["status"] == "resolved"
+    assert update_resp.json()["resolution_notes"] == "Patched serializer and added a regression test."
+
     app.dependency_overrides.clear()

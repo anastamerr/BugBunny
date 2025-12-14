@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 from ...api.deps import get_db
 from ...integrations.pinecone_client import PineconeService
 from ...models import BugReport
-from ...schemas.bug import BugReportCreate, BugReportRead
+from ...schemas.bug import BugReportCreate, BugReportRead, BugReportUpdate
 from ...realtime import sio
 from ...services.bug_triage import AutoRouter, BugClassifier, DuplicateDetector
 
@@ -181,3 +181,25 @@ def get_duplicates(bug_id: str, db: Session = Depends(get_db)):
         title=bug.title,
         description=bug.description or "",
     )
+
+
+@router.patch("/{bug_id}", response_model=BugReportRead)
+def update_bug(
+    bug_id: str,
+    payload: BugReportUpdate,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+) -> BugReport:
+    bug = get_bug(bug_id, db)
+
+    data = payload.model_dump(exclude_unset=True)
+    for key, value in data.items():
+        setattr(bug, key, value)
+
+    db.add(bug)
+    db.commit()
+    db.refresh(bug)
+
+    event_payload = BugReportRead.model_validate(bug).model_dump(mode="json")
+    background_tasks.add_task(sio.emit, "bug.updated", event_payload)
+    return bug

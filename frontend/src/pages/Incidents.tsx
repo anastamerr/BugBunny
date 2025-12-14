@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { Link } from "react-router-dom";
 
 import { incidentsApi } from "../api/incidents";
 
@@ -61,7 +62,12 @@ export default function Incidents() {
                   className="border-t border-white/10 transition-colors duration-200 ease-fluid hover:bg-white/5"
                 >
                   <td className="px-4 py-3 font-semibold text-white">
-                    {incident.table_name}
+                    <Link
+                      to={`/incidents/${incident.id}`}
+                      className="underline decoration-white/20 underline-offset-4 hover:decoration-neon-mint/60 hover:text-neon-mint"
+                    >
+                      {incident.table_name}
+                    </Link>
                   </td>
                   <td className="px-4 py-3 text-white/80">
                     {incident.incident_type}

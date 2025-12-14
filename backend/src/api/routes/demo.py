@@ -24,6 +24,7 @@ from ...services.correlation.temporal_matcher import TemporalMatcher
 from ...services.intelligence.explanation_generator import ExplanationGenerator
 from ...services.intelligence.llm_service import get_llm_service
 from ...services.intelligence.prediction_engine import PredictionEngine
+from ...services.incident_response.playbook import ensure_incident_actions
 
 router = APIRouter(prefix="/demo", tags=["demo"])
 
@@ -104,6 +105,11 @@ def inject_incident(
             mode="json"
         )
         background_tasks.add_task(sio.emit, "prediction.created", prediction_event)
+    except Exception:
+        pass
+
+    try:
+        ensure_incident_actions(db, incident)
     except Exception:
         pass
 

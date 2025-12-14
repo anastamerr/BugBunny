@@ -8,6 +8,7 @@ import Chat from "./pages/Chat";
 import Correlations from "./pages/Correlations";
 import Dashboard from "./pages/Dashboard";
 import Incidents from "./pages/Incidents";
+import IncidentDetail from "./pages/IncidentDetail";
 import Predictions from "./pages/Predictions";
 import Settings from "./pages/Settings";
 
@@ -21,6 +22,7 @@ export default function App() {
           <Route path="/" element={<Layout />}>
             <Route index element={<Dashboard />} />
             <Route path="incidents" element={<Incidents />} />
+            <Route path="incidents/:id" element={<IncidentDetail />} />
             <Route path="bugs" element={<Bugs />} />
             <Route path="bugs/:id" element={<BugDetail />} />
             <Route path="correlations" element={<Correlations />} />

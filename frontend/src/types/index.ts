@@ -17,6 +17,9 @@ export interface DataIncident {
   downstream_systems: string[];
   status: "ACTIVE" | "INVESTIGATING" | "RESOLVED";
   related_bugs_count?: number;
+  resolved_at?: string | null;
+  resolution_notes?: string | null;
+  created_at?: string | null;
 }
 
 export interface BugReport {
@@ -60,4 +63,23 @@ export interface BugPrediction {
   predicted_components: string[];
   confidence: number;
   prediction_window_hours: number;
+}
+
+export interface IncidentAction {
+  id: string;
+  incident_id: string;
+  title: string;
+  description?: string | null;
+  owner_team?: string | null;
+  status: "todo" | "doing" | "done";
+  source: "generated" | "manual";
+  sort_order?: number | null;
+  created_at?: string | null;
+  completed_at?: string | null;
+}
+
+export interface IncidentPostmortem {
+  incident_id: string;
+  markdown: string;
+  generated_at: string;
 }
