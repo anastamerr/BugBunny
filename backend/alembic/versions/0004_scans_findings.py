@@ -1,7 +1,7 @@
 """Add scans and findings
 
 Revision ID: 0004_scans_findings
-Revises: 0003_bug_resolution_notes
+Revises: 0004_incident_actions
 Create Date: 2025-12-25
 """
 
@@ -10,7 +10,7 @@ import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
 revision = "0004_scans_findings"
-down_revision = "0003_bug_resolution_notes"
+down_revision = "0004_incident_actions"
 branch_labels = None
 depends_on = None
 

@@ -15,11 +15,13 @@ depends_on = None
 
 
 def upgrade() -> None:
+    scan_trigger_enum = sa.Enum("manual", "webhook", name="scan_trigger")
+    scan_trigger_enum.create(op.get_bind(), checkfirst=True)
     op.add_column(
         "scans",
         sa.Column(
             "trigger",
-            sa.Enum("manual", "webhook", name="scan_trigger"),
+            scan_trigger_enum,
             nullable=False,
             server_default=sa.text("'manual'"),
         ),
@@ -36,3 +38,5 @@ def downgrade() -> None:
     op.drop_column("scans", "pr_url")
     op.drop_column("scans", "pr_number")
     op.drop_column("scans", "trigger")
+    scan_trigger_enum = sa.Enum("manual", "webhook", name="scan_trigger")
+    scan_trigger_enum.drop(op.get_bind(), checkfirst=True)

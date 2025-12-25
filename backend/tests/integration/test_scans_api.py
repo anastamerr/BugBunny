@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import uuid
 from typing import List, Tuple
 
 from fastapi.testclient import TestClient
@@ -51,7 +52,8 @@ def test_create_scan_creates_record(db_sessionmaker, monkeypatch):
     assert payload["trigger"] == "manual"
 
     verify_db = db_sessionmaker()
-    scan = verify_db.query(Scan).filter(Scan.id == payload["id"]).first()
+    scan_id = uuid.UUID(payload["id"])
+    scan = verify_db.query(Scan).filter(Scan.id == scan_id).first()
     assert scan is not None
     verify_db.close()
 
@@ -78,6 +80,7 @@ def test_scan_findings_filtering(db_sessionmaker, monkeypatch):
     db.add(scan)
     db.commit()
     db.refresh(scan)
+    scan_id = str(scan.id)
 
     finding_keep = Finding(
         scan_id=scan.id,
@@ -106,14 +109,14 @@ def test_scan_findings_filtering(db_sessionmaker, monkeypatch):
     db.commit()
     db.close()
 
-    resp = client.get(f"/api/scans/{scan.id}/findings")
+    resp = client.get(f"/api/scans/{scan_id}/findings")
     assert resp.status_code == 200
     payload = resp.json()
     assert len(payload) == 1
     assert payload[0]["rule_id"] == "rule-1"
 
     resp_all = client.get(
-        f"/api/scans/{scan.id}/findings",
+        f"/api/scans/{scan_id}/findings",
         params={"include_false_positives": True},
     )
     assert resp_all.status_code == 200
@@ -157,10 +160,11 @@ def test_update_finding_status(db_sessionmaker, monkeypatch):
     db.add(finding)
     db.commit()
     db.refresh(finding)
+    finding_id = str(finding.id)
     db.close()
 
     resp = client.patch(
-        f"/api/findings/{finding.id}",
+        f"/api/findings/{finding_id}",
         json={"status": "confirmed"},
     )
     assert resp.status_code == 200
