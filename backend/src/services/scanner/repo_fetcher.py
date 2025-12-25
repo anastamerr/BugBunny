@@ -63,7 +63,12 @@ class RepoFetcher:
         await asyncio.to_thread(shutil.rmtree, repo_path, True)
 
     def detect_languages(self, repo_path: Path) -> List[str]:
+        languages, _ = self.analyze_repo(repo_path)
+        return languages
+
+    def analyze_repo(self, repo_path: Path) -> tuple[List[str], int]:
         languages: set[str] = set()
+        file_count = 0
         extension_map = {
             ".py": "python",
             ".js": "javascript",
@@ -80,11 +85,12 @@ class RepoFetcher:
             if self._should_skip(path):
                 continue
 
+            file_count += 1
             language = extension_map.get(path.suffix.lower())
             if language:
                 languages.add(language)
 
-        return sorted(languages)
+        return sorted(languages), file_count
 
     def _apply_github_token(self, repo_url: str) -> str:
         token = self.settings.github_token

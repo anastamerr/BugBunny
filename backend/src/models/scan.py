@@ -1,7 +1,7 @@
 from datetime import datetime
 import uuid
 
-from sqlalchemy import Column, DateTime, Enum, Integer, String, Text
+from sqlalchemy import JSON, Column, DateTime, Enum, Integer, String, Text
 from sqlalchemy.dialects.postgresql import UUID
 
 from .base import Base
@@ -38,6 +38,10 @@ class Scan(Base):
     pr_url = Column(String, nullable=True)
     commit_sha = Column(String, nullable=True)
     commit_url = Column(String, nullable=True)
+    detected_languages = Column(JSON, nullable=True)
+    rulesets = Column(JSON, nullable=True)
+    scanned_files = Column(Integer, nullable=True)
+    semgrep_version = Column(String, nullable=True)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at = Column(
         DateTime,

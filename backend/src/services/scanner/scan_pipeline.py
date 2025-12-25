@@ -41,7 +41,18 @@ async def run_scan_pipeline(scan_id: uuid.UUID, repo_url: str, branch: str) -> N
         _update_scan(db, scan_id, status="scanning")
         await sio.emit("scan.updated", {"scan_id": str(scan_id), "status": "scanning"})
 
-        languages = fetcher.detect_languages(repo_path)
+        languages, scanned_files = fetcher.analyze_repo(repo_path)
+        rulesets = runner.resolve_rulesets(languages)
+        semgrep_version = runner.get_version()
+        rulesets_used = rulesets or ["auto"]
+        _update_scan(
+            db,
+            scan_id,
+            detected_languages=languages,
+            rulesets=rulesets_used,
+            scanned_files=scanned_files,
+            semgrep_version=semgrep_version,
+        )
         raw_findings = await runner.scan(repo_path, languages)
 
         _update_scan(
@@ -126,6 +137,10 @@ def _update_scan(
     total_findings: Optional[int] = None,
     filtered_findings: Optional[int] = None,
     error_message: Optional[str] = None,
+    detected_languages: Optional[list[str]] = None,
+    rulesets: Optional[list[str]] = None,
+    scanned_files: Optional[int] = None,
+    semgrep_version: Optional[str] = None,
 ) -> None:
     scan = db.query(Scan).filter(Scan.id == scan_id).first()
     if not scan:
@@ -140,6 +155,14 @@ def _update_scan(
         scan.filtered_findings = filtered_findings
     if error_message is not None:
         scan.error_message = error_message
+    if detected_languages is not None:
+        scan.detected_languages = detected_languages
+    if rulesets is not None:
+        scan.rulesets = rulesets
+    if scanned_files is not None:
+        scan.scanned_files = scanned_files
+    if semgrep_version is not None:
+        scan.semgrep_version = semgrep_version
 
     db.add(scan)
     db.commit()

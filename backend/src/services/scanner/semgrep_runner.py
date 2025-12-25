@@ -22,7 +22,7 @@ class SemgrepRunner:
             "off",
         ]
 
-        rulesets = self._get_rulesets(languages)
+        rulesets = self.resolve_rulesets(languages)
         if rulesets:
             for ruleset in rulesets:
                 cmd.extend(["--config", ruleset])
@@ -39,7 +39,7 @@ class SemgrepRunner:
 
         return self._parse_results(parsed)
 
-    def _get_rulesets(self, languages: List[str]) -> List[str]:
+    def resolve_rulesets(self, languages: List[str]) -> List[str]:
         mapping = {
             "python": "p/python",
             "javascript": "p/javascript",
@@ -47,6 +47,23 @@ class SemgrepRunner:
             "java": "p/java",
         }
         return sorted({mapping[lang] for lang in languages if lang in mapping})
+
+    def get_version(self) -> str | None:
+        try:
+            result = subprocess.run(
+                [self.semgrep_path, "--version"],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+        except FileNotFoundError:
+            return None
+
+        if result.returncode != 0:
+            return None
+
+        output = (result.stdout or result.stderr or "").strip()
+        return output or None
 
     def _run_command(self, cmd: List[str]) -> str:
         try:

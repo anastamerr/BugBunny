@@ -45,6 +45,11 @@ function shortSha(value?: string | null) {
   return trimmed.length ? trimmed.slice(0, 7) : null;
 }
 
+function formatList(values?: string[] | null, emptyLabel = "none") {
+  if (!values || values.length === 0) return emptyLabel;
+  return values.join(", ");
+}
+
 export default function ScanDetail() {
   const { id } = useParams();
   const queryClient = useQueryClient();
@@ -103,6 +108,31 @@ export default function ScanDetail() {
     const ratio = total ? 1 - filtered / total : 0;
     const pct = Math.round(Math.max(0, Math.min(1, ratio)) * 100);
     return { total, filtered, pct };
+  }, [scan]);
+
+  const telemetry = useMemo(() => {
+    const detectedLanguages = formatList(
+      scan?.detected_languages,
+      "none detected"
+    );
+    const rulesets = formatList(scan?.rulesets, "auto");
+    const scannedFiles =
+      scan?.scanned_files === null || scan?.scanned_files === undefined
+        ? "n/a"
+        : String(scan.scanned_files);
+    const semgrepVersion = scan?.semgrep_version || "n/a";
+    const hasTelemetry =
+      scan?.detected_languages != null ||
+      scan?.rulesets != null ||
+      scan?.scanned_files != null ||
+      scan?.semgrep_version != null;
+    return {
+      detectedLanguages,
+      rulesets,
+      scannedFiles,
+      semgrepVersion,
+      hasTelemetry,
+    };
   }, [scan]);
 
   const progressSteps: Scan["status"][] = [
@@ -341,6 +371,48 @@ export default function ScanDetail() {
           </div>
         </div>
       </div>
+
+      {telemetry.hasTelemetry ? (
+        <div className="surface-solid p-5">
+          <div className="text-xs font-semibold uppercase tracking-[0.2em] text-white/60">
+            Scan Evidence
+          </div>
+          <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
+            <div>
+              <div className="text-xs font-semibold uppercase tracking-[0.2em] text-white/60">
+                Files Scanned
+              </div>
+              <div className="mt-2 text-sm font-semibold text-white">
+                {telemetry.scannedFiles}
+              </div>
+            </div>
+            <div>
+              <div className="text-xs font-semibold uppercase tracking-[0.2em] text-white/60">
+                Languages
+              </div>
+              <div className="mt-2 text-sm text-white/80">
+                {telemetry.detectedLanguages}
+              </div>
+            </div>
+            <div>
+              <div className="text-xs font-semibold uppercase tracking-[0.2em] text-white/60">
+                Rulesets
+              </div>
+              <div className="mt-2 text-sm text-white/80">
+                {telemetry.rulesets}
+              </div>
+            </div>
+            <div>
+              <div className="text-xs font-semibold uppercase tracking-[0.2em] text-white/60">
+                Semgrep Version
+              </div>
+              <div className="mt-2 text-sm text-white/80">
+                {telemetry.semgrepVersion}
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       <div className="surface-solid p-5">
         <div className="flex flex-wrap items-center justify-between gap-3">

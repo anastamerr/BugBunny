@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 from enum import Enum
-from typing import Optional
+from typing import List, Optional
 
 from pydantic import BaseModel, ConfigDict
 
@@ -37,6 +37,10 @@ class ScanUpdate(BaseModel):
     pr_url: Optional[str] = None
     commit_sha: Optional[str] = None
     commit_url: Optional[str] = None
+    detected_languages: Optional[List[str]] = None
+    rulesets: Optional[List[str]] = None
+    scanned_files: Optional[int] = None
+    semgrep_version: Optional[str] = None
 
 
 class ScanRead(BaseModel):
@@ -54,5 +58,9 @@ class ScanRead(BaseModel):
     pr_url: Optional[str] = None
     commit_sha: Optional[str] = None
     commit_url: Optional[str] = None
+    detected_languages: Optional[List[str]] = None
+    rulesets: Optional[List[str]] = None
+    scanned_files: Optional[int] = None
+    semgrep_version: Optional[str] = None
     created_at: datetime
     updated_at: datetime

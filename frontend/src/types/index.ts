@@ -34,6 +34,10 @@ export interface Scan {
   pr_url?: string | null;
   commit_sha?: string | null;
   commit_url?: string | null;
+  detected_languages?: string[] | null;
+  rulesets?: string[] | null;
+  scanned_files?: number | null;
+  semgrep_version?: string | null;
   created_at: string;
   updated_at: string;
 }
