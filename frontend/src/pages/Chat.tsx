@@ -1,5 +1,6 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { FormEvent } from "react";
+import { Link, useSearchParams } from "react-router-dom";
 
 import { chatApi } from "../api/chat";
 
@@ -17,10 +18,22 @@ function messageClass(role: ChatMessage["role"]) {
 }
 
 export default function Chat() {
+  const [searchParams] = useSearchParams();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [isSending, setIsSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const bugId = searchParams.get("bug_id") || undefined;
+  const scanId = searchParams.get("scan_id") || undefined;
+  const findingId = searchParams.get("finding_id") || undefined;
+  const prefill = searchParams.get("message") || searchParams.get("q") || "";
+
+  useEffect(() => {
+    if (prefill && messages.length === 0 && !input) {
+      setInput(prefill);
+    }
+  }, [prefill, messages.length, input]);
 
   const canSend = useMemo(
     () => input.trim().length > 0 && !isSending,
@@ -38,7 +51,12 @@ export default function Chat() {
     setMessages((prev) => [...prev, { role: "user", content: text }]);
 
     try {
-      const resp = await chatApi.send({ message: text });
+      const resp = await chatApi.send({
+        message: text,
+        bug_id: bugId,
+        scan_id: scanId,
+        finding_id: findingId,
+      });
       setMessages((prev) => [
         ...prev,
         {
@@ -59,16 +77,38 @@ export default function Chat() {
       <div className="surface-solid p-6">
         <h1 className="text-2xl font-extrabold tracking-tight text-white">Chat</h1>
         <p className="mt-1 text-sm text-white/60">
-          Ask DataBug AI about bugs, duplicates, and triage recommendations. The
-          assistant is grounded in your latest bug data.
+          Ask ScanGuard AI about scans, findings, and triage recommendations. The
+          assistant is grounded in your latest platform data.
         </p>
+        {(bugId || scanId || findingId) ? (
+          <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-white/60">
+            {scanId ? (
+              <Link to={`/scans/${scanId}`} className="badge font-mono text-white/80">
+                scan {scanId.slice(0, 8)}
+              </Link>
+            ) : null}
+            {findingId ? (
+              <span className="badge font-mono text-white/80">
+                finding {findingId.slice(0, 8)}
+              </span>
+            ) : null}
+            {bugId ? (
+              <Link to={`/bugs/${bugId}`} className="badge font-mono text-white/80">
+                bug {bugId.slice(0, 8)}
+              </Link>
+            ) : null}
+            <Link to="/chat" className="btn-ghost">
+              Clear context
+            </Link>
+          </div>
+        ) : null}
       </div>
 
       <div className="surface-solid p-5">
         <div className="space-y-3">
           {messages.length === 0 && (
             <div className="text-sm text-white/60">
-              Try: "Summarize the latest high-severity bugs."
+              Try: "Summarize the latest high-severity findings."
             </div>
           )}
 

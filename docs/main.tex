@@ -2,7 +2,7 @@
 \usepackage[margin=1in]{geometry}
 \usepackage{hyperref}
 
-\title{DataBug AI: Intelligent Bug Triage}
+\title{ScanGuard AI: Context-Aware Static Analysis}
 \author{Team CSIS}
 \date{2025}
 
@@ -10,39 +10,41 @@
 \maketitle
 
 \section*{Overview}
-DataBug AI automates bug triage by classifying incoming issues, detecting duplicates, and routing to the right teams with AI assistance. The system integrates GitHub ingestion, semantic dedupe, and an LLM assistant to reduce time-to-triage and improve consistency.
+ScanGuard AI reduces static analysis noise by running Semgrep first and then using LLMs to interpret code context, filter false positives, and reprioritize findings based on exploitability.
 
 \section*{Track Alignment}
+\textbf{Track 1: AI-Enhanced DevSecOps Pipeline} \newline
+Primary focus on context-aware SAST and exploitability scoring. \newline
 \textbf{Track 4: Bug Triage Automation} \newline
-DataBug AI focuses entirely on automated bug triage workflows.
+Secondary focus on automated triage workflows for findings.
 
 \section*{Architecture}
 \begin{itemize}
-  \item Bug ingestion from GitHub webhooks and optional backfill
-  \item Classification for type, component, and severity
-  \item Duplicate detection via semantic embeddings (Pinecone)
-  \item Auto-routing to the right team
-  \item LLM assistant for summaries and next actions
+  \item Repo fetcher for GitHub URLs and branches
+  \item Semgrep scan with language-aware rulesets
+  \item Context extraction around each finding
+  \item LLM triage to mark false positives and adjust severity
+  \item Deduplication and ranking via embeddings (Pinecone)
 \end{itemize}
 
 \section*{Impact}
 \begin{itemize}
-  \item Reduce triage time from minutes to seconds
-  \item Improve duplicate detection accuracy
-  \item Accelerate routing and resolution
+  \item Reduce false positives by 70\%+
+  \item Prioritize exploitable issues first
+  \item Shorten time-to-fix by focusing developer effort
 \end{itemize}
 
 \section*{Demo Flow}
 \begin{enumerate}
-  \item GitHub issue is created
-  \item DataBug AI classifies and routes it
-  \item Duplicate detector links similar issues
-  \item Chat assistant summarizes impact and next steps
+  \item Trigger scan on a public repo
+  \item Semgrep produces raw findings
+  \item LLM triage filters noise and adjusts severity
+  \item Dashboard displays the top real issues
 \end{enumerate}
 
 \section*{References}
 \begin{itemize}
-  \item \href{https://arxiv.org/abs/1911.03657}{DeepTriage Paper}
+  \item \href{https://semgrep.dev/}{Semgrep Documentation}
   \item \href{https://www.pinecone.io/}{Pinecone Documentation}
 \end{itemize}
 

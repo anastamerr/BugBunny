@@ -8,6 +8,7 @@ from .api.routes.health import router as health_router
 from .api.routes.bugs import router as bugs_router
 from .api.routes.chat import router as chat_router
 from .api.routes.demo import router as demo_router
+from .api.routes.scans import findings_router, router as scans_router
 from .api.routes.webhooks import router as webhooks_router
 from .config import get_settings
 from .integrations.github_backfill import backfill_github_issues
@@ -15,7 +16,7 @@ from .realtime import sio
 
 settings = get_settings()
 
-app = FastAPI(title="DataBug AI API", version="0.1.0")
+app = FastAPI(title="ScanGuard AI API", version="0.1.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -29,6 +30,8 @@ app.include_router(health_router, prefix=settings.api_prefix)
 app.include_router(bugs_router, prefix=settings.api_prefix)
 app.include_router(chat_router, prefix=settings.api_prefix)
 app.include_router(demo_router, prefix=settings.api_prefix)
+app.include_router(scans_router, prefix=settings.api_prefix)
+app.include_router(findings_router, prefix=settings.api_prefix)
 app.include_router(webhooks_router, prefix=settings.api_prefix)
 
 asgi_app = socketio.ASGIApp(
@@ -40,7 +43,7 @@ asgi_app = socketio.ASGIApp(
 
 @app.get("/")
 async def root() -> dict:
-    return {"name": "DataBug AI", "status": "ok"}
+    return {"name": "ScanGuard AI", "status": "ok"}
 
 
 @app.on_event("startup")

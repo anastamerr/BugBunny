@@ -3,6 +3,8 @@ import { api } from "./client";
 export type ChatRequest = {
   message: string;
   bug_id?: string;
+  scan_id?: string;
+  finding_id?: string;
 };
 
 export type ChatResponse = {

@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 from ...api.deps import get_db
 from ...config import get_settings
 from ...integrations.pinecone_client import PineconeService
-from ...models import BugReport
+from ...models import BugReport, Finding, Scan
 from ...schemas.chat import ChatRequest, ChatResponse
 from ...services.intelligence.llm_service import get_llm_service
 
@@ -27,6 +27,22 @@ def _bug_brief(bug: BugReport) -> str:
     return (
         f"- {bug.id} | {bug.created_at} | {bug.classified_severity} "
         f"{bug.classified_component} | status={bug.status} | {bug.title}"
+    )
+
+
+def _scan_brief(scan: Scan) -> str:
+    return (
+        f"- {scan.id} | {scan.created_at} | status={scan.status} | "
+        f"{scan.repo_url}@{scan.branch} | findings={scan.total_findings} "
+        f"filtered={scan.filtered_findings}"
+    )
+
+
+def _finding_brief(finding: Finding) -> str:
+    severity = finding.ai_severity or finding.semgrep_severity
+    return (
+        f"- {finding.id} | {severity} | {finding.file_path}:{finding.line_start} | "
+        f"{finding.rule_id} | status={finding.status}"
     )
 
 
@@ -58,18 +74,36 @@ def _priority_order_query(q):
     )
 
 
+def _finding_order_query(q):
+    from sqlalchemy import case, desc
+
+    priority_rank = case((Finding.priority_score.is_(None), 0), else_=1)
+    return q.order_by(
+        desc(priority_rank),
+        desc(Finding.priority_score),
+        Finding.created_at.desc(),
+    )
+
+
 def _build_context(
     bug: BugReport | None,
+    scan: Scan | None,
+    finding: Finding | None,
     *,
     recent_bugs: list[BugReport],
     bug_queue: list[BugReport],
     semantic_bugs: list[BugReport],
+    recent_scans: list[Scan],
+    finding_queue: list[Finding],
+    scan_findings: list[Finding],
 ) -> str:
     parts: list[str] = []
 
     snapshot = "\n".join(
         [
             "PLATFORM SNAPSHOT:",
+            f"- Recent scans shown: {len(recent_scans)}",
+            f"- Top findings shown: {len(finding_queue)}",
             f"- Recent bugs shown: {len(recent_bugs)}",
             f"- High-priority bugs shown: {len(bug_queue)}",
             f"- Semantic-matched bugs shown: {len(semantic_bugs)}",
@@ -77,11 +111,53 @@ def _build_context(
     )
     parts.append(snapshot)
 
+    if recent_scans:
+        parts.append("RECENT SCANS:\n" + "\n".join(_scan_brief(s) for s in recent_scans))
+
+    if finding_queue:
+        parts.append(
+            "TOP FINDINGS:\n" + "\n".join(_finding_brief(f) for f in finding_queue)
+        )
+
     if recent_bugs:
         parts.append("RECENT BUGS:\n" + "\n".join(_bug_brief(b) for b in recent_bugs))
 
     if bug_queue:
         parts.append("HIGH-PRIORITY BUG QUEUE:\n" + "\n".join(_bug_brief(b) for b in bug_queue))
+
+    if scan:
+        parts.append(
+            "\n".join(
+                [
+                    "FOCUS SCAN:",
+                    f"- Repo: {scan.repo_url}",
+                    f"- Branch: {scan.branch}",
+                    f"- Status: {scan.status}",
+                    f"- Findings: {scan.total_findings}",
+                    f"- Filtered: {scan.filtered_findings}",
+                ]
+            )
+        )
+
+    if scan_findings:
+        parts.append(
+            "FOCUS SCAN FINDINGS:\n"
+            + "\n".join(_finding_brief(f) for f in scan_findings)
+        )
+
+    if finding:
+        parts.append(
+            "\n".join(
+                [
+                    "FOCUS FINDING:",
+                    f"- Rule: {finding.rule_id}",
+                    f"- Severity: {finding.ai_severity or finding.semgrep_severity}",
+                    f"- File: {finding.file_path}:{finding.line_start}",
+                    f"- Status: {finding.status}",
+                    f"- Reasoning: {_truncate(finding.ai_reasoning or '')}",
+                ]
+            )
+        )
 
     if bug:
         parts.append(
@@ -109,11 +185,26 @@ def _build_context(
 @router.post("", response_model=ChatResponse)
 async def chat(payload: ChatRequest, db: Session = Depends(get_db)) -> ChatResponse:
     bug: BugReport | None = None
+    scan: Scan | None = None
+    finding: Finding | None = None
 
     if payload.bug_id is not None and bug is None:
         bug = db.query(BugReport).filter(BugReport.id == payload.bug_id).first()
         if not bug:
             raise HTTPException(status_code=404, detail="Bug not found")
+
+    if payload.scan_id is not None and scan is None:
+        scan = db.query(Scan).filter(Scan.id == payload.scan_id).first()
+        if not scan:
+            raise HTTPException(status_code=404, detail="Scan not found")
+
+    if payload.finding_id is not None and finding is None:
+        finding = db.query(Finding).filter(Finding.id == payload.finding_id).first()
+        if not finding:
+            raise HTTPException(status_code=404, detail="Finding not found")
+
+    if finding is not None and scan is None:
+        scan = db.query(Scan).filter(Scan.id == finding.scan_id).first()
 
     # If user didn't provide specific IDs, we still want the assistant to be useful
     # by attaching recent platform context and a "focus" bug.
@@ -126,6 +217,27 @@ async def chat(payload: ChatRequest, db: Session = Depends(get_db)) -> ChatRespo
 
     # High-priority bug queue (enterprise triage default).
     bug_q = _priority_order_query(db.query(BugReport)).limit(8).all()
+
+    recent_scans = db.query(Scan).order_by(Scan.created_at.desc()).limit(5).all()
+    finding_q = (
+        _finding_order_query(
+            db.query(Finding).filter(Finding.is_false_positive.is_(False))
+        )
+        .limit(8)
+        .all()
+    )
+    scan_findings: list[Finding] = []
+    if scan is not None:
+        scan_findings = (
+            _finding_order_query(
+                db.query(Finding).filter(
+                    Finding.scan_id == scan.id,
+                    Finding.is_false_positive.is_(False),
+                )
+            )
+            .limit(8)
+            .all()
+        )
 
     # Semantic retrieval: pull relevant bugs for the user's question (optional).
     semantic_bugs: list[BugReport] = []
@@ -152,13 +264,18 @@ async def chat(payload: ChatRequest, db: Session = Depends(get_db)) -> ChatRespo
 
     context = _build_context(
         bug,
+        scan,
+        finding,
         recent_bugs=recent_bugs,
         bug_queue=bug_q,
         semantic_bugs=semantic_bugs,
+        recent_scans=recent_scans,
+        finding_queue=finding_q,
+        scan_findings=scan_findings,
     )
 
     system = (
-        "You are DataBug AI, an enterprise-grade assistant for bug triage.\n"
+        "You are ScanGuard AI, an enterprise-grade assistant for security findings and bug triage.\n"
         "Use ONLY the provided platform context. Be concise, technical, and actionable.\n"
         "Do not ask for context if the snapshot already includes bugs; instead make the best recommendation.\n"
         "If something critical is missing, ask at most 1-2 specific questions."
@@ -171,7 +288,7 @@ async def chat(payload: ChatRequest, db: Session = Depends(get_db)) -> ChatRespo
         "2) Evidence from context (bullets)\n"
         "3) Impacted users/components\n"
         "4) Triage plan (next best actions + owners)\n"
-        "5) Bug prioritization (top 3 from the queue, if relevant)\n"
+        "5) Prioritization (top 3 findings/bugs from the queue, if relevant)\n"
     )
 
     settings = get_settings()

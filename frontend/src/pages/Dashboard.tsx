@@ -1,27 +1,56 @@
 import { useQuery } from "@tanstack/react-query";
-import { AlertTriangle, Bug, Copy, Flame } from "lucide-react";
+import { Activity, Radar, ScanSearch, ShieldCheck } from "lucide-react";
 import { Link } from "react-router-dom";
 
 import { bugsApi } from "../api/bugs";
+import { scansApi } from "../api/scans";
 import { BugQueue } from "../components/dashboard/BugQueue";
 import { StatsCard } from "../components/dashboard/StatsCard";
+
+function formatRepoName(url: string) {
+  try {
+    const parsed = new URL(url);
+    const parts = parsed.pathname.split("/").filter(Boolean);
+    if (parts.length >= 2) {
+      return `${parts[parts.length - 2]}/${parts[parts.length - 1]}`;
+    }
+  } catch {
+    return url;
+  }
+  return url;
+}
+
+function formatReduction(total: number, filtered: number) {
+  if (!total) return "0%";
+  const ratio = 1 - filtered / total;
+  return `${Math.round(Math.max(0, Math.min(1, ratio)) * 100)}%`;
+}
 
 export default function Dashboard() {
   const { data: bugs } = useQuery({
     queryKey: ["bugs"],
     queryFn: () => bugsApi.getAll(),
   });
+  const { data: scans } = useQuery({
+    queryKey: ["scans"],
+    queryFn: () => scansApi.list(),
+  });
 
   const bugList = bugs ?? [];
-  const openBugs = bugList.filter((bug) => bug.status !== "resolved");
   const newBugs = bugList.filter((bug) => bug.status === "new");
-  const highSeverityBugs = bugList.filter(
-    (bug) => bug.classified_severity === "critical" || bug.classified_severity === "high"
+
+  const scanList = scans ?? [];
+  const activeScans = scanList.filter((scan) =>
+    ["pending", "cloning", "scanning", "analyzing"].includes(scan.status),
   );
-  const duplicateBugs = bugList.filter((bug) => bug.is_duplicate);
-  const duplicateRate = bugList.length
-    ? Math.round((duplicateBugs.length / bugList.length) * 100)
-    : 0;
+  const totalFindings = scanList.reduce(
+    (acc, scan) => acc + (scan.total_findings || 0),
+    0,
+  );
+  const filteredFindings = scanList.reduce(
+    (acc, scan) => acc + (scan.filtered_findings || 0),
+    0,
+  );
 
   return (
     <div className="space-y-6">
@@ -34,22 +63,22 @@ export default function Dashboard() {
         <div className="relative flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
           <div className="min-w-0">
             <div className="inline-flex items-center gap-2 rounded-pill border border-neon-mint/40 bg-neon-mint/10 px-3 py-1 text-xs font-semibold tracking-[0.2em] text-neon-mint">
-              LIVE CONSOLE
+              SCANGUARD OPS
             </div>
             <h1 className="mt-3 text-3xl font-extrabold tracking-tight text-white">
               Dashboard
             </h1>
             <p className="mt-2 max-w-2xl text-sm text-white/60">
-              Prioritize, de-duplicate, and route bugs faster with AI-assisted triage.
+              Context-aware static analysis that cuts noise and surfaces real risk.
             </p>
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
+            <Link to="/scans" className="btn-primary">
+              Run a Scan
+            </Link>
             <Link to="/bugs" className="btn-ghost">
               View Bugs
-            </Link>
-            <Link to="/chat" className="btn-primary">
-              Ask DataBug
             </Link>
           </div>
         </div>
@@ -57,36 +86,65 @@ export default function Dashboard() {
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
         <StatsCard
-          title="Open Bugs"
-          value={openBugs.length}
-          icon={<Bug className="h-4 w-4 text-neon-mint" />}
+          title="Total Scans"
+          value={scanList.length}
+          icon={<Radar className="h-4 w-4 text-neon-mint" />}
         />
         <StatsCard
-          title="New Bugs"
-          value={newBugs.length}
-          icon={<AlertTriangle className="h-4 w-4 text-neon-mint" />}
+          title="Active Scans"
+          value={activeScans.length}
+          icon={<Activity className="h-4 w-4 text-neon-mint" />}
         />
         <StatsCard
-          title="High Severity"
-          value={highSeverityBugs.length}
-          subtitle="critical + high"
-          icon={<Flame className="h-4 w-4 text-neon-mint" />}
+          title="Total Findings"
+          value={totalFindings}
+          subtitle="raw results"
+          icon={<ScanSearch className="h-4 w-4 text-neon-mint" />}
         />
         <StatsCard
-          title="Duplicate Rate"
-          value={`${duplicateRate}%`}
-          subtitle={`${duplicateBugs.length} duplicates`}
-          icon={<Copy className="h-4 w-4 text-neon-mint" />}
+          title="Noise Reduction"
+          value={formatReduction(totalFindings, filteredFindings)}
+          subtitle={`${filteredFindings} real issues`}
+          icon={<ShieldCheck className="h-4 w-4 text-neon-mint" />}
         />
       </div>
 
       <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
+        <div className="surface-solid p-5">
+          <div className="flex items-center justify-between">
+            <div className="text-sm font-semibold tracking-tight text-white">
+              Recent Scans
+            </div>
+            <Link to="/scans" className="text-xs text-neon-mint">
+              View all
+            </Link>
+          </div>
+          <div className="mt-4 space-y-3 text-sm">
+            {scanList.slice(0, 5).map((scan) => (
+              <div
+                key={scan.id}
+                className="flex items-center justify-between gap-4 rounded-card border border-white/10 bg-surface px-4 py-3"
+              >
+                <div className="min-w-0">
+                  <div className="truncate font-semibold text-white">
+                    {formatRepoName(scan.repo_url)}
+                  </div>
+                  <div className="mt-1 text-xs text-white/60">
+                    {scan.branch} • {scan.status}
+                  </div>
+                </div>
+                <Link to={`/scans/${scan.id}`} className="btn-ghost">
+                  View
+                </Link>
+              </div>
+            ))}
+            {scanList.length === 0 ? (
+              <div className="text-sm text-white/60">No scans yet.</div>
+            ) : null}
+          </div>
+        </div>
+
         <BugQueue title="New Bugs" emptyLabel="No new bugs." bugs={newBugs.slice(0, 5)} />
-        <BugQueue
-          title="High Priority"
-          emptyLabel="No high-severity bugs."
-          bugs={highSeverityBugs.slice(0, 5)}
-        />
       </div>
     </div>
   );

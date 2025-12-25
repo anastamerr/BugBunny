@@ -6,7 +6,11 @@ from typing import Any, Dict
 
 import httpx
 
-API_URL = os.getenv("DATABUG_API_URL", "http://localhost:8000/api")
+API_URL = (
+    os.getenv("SCANGUARD_API_URL")
+    or os.getenv("DATABUG_API_URL")
+    or "http://localhost:8000/api"
+)
 
 
 def post(path: str, payload: Dict[str, Any]) -> Dict[str, Any]:

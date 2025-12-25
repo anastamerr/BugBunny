@@ -6,6 +6,8 @@ import Bugs from "./pages/Bugs";
 import BugDetail from "./pages/BugDetail";
 import Chat from "./pages/Chat";
 import Dashboard from "./pages/Dashboard";
+import ScanDetail from "./pages/ScanDetail";
+import Scans from "./pages/Scans";
 import Settings from "./pages/Settings";
 
 const queryClient = new QueryClient();
@@ -15,8 +17,10 @@ export default function App() {
     <QueryClientProvider client={queryClient}>
       <BrowserRouter>
         <Routes>
-            <Route path="/" element={<Layout />}>
+          <Route path="/" element={<Layout />}>
             <Route index element={<Dashboard />} />
+            <Route path="scans" element={<Scans />} />
+            <Route path="scans/:id" element={<ScanDetail />} />
             <Route path="bugs" element={<Bugs />} />
             <Route path="bugs/:id" element={<BugDetail />} />
             <Route path="chat" element={<Chat />} />

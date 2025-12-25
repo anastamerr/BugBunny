@@ -1,0 +1,41 @@
+import { api } from "./client";
+import type { Finding, Scan } from "../types";
+
+export const scansApi = {
+  create: async (payload: { repo_url: string; branch?: string }) => {
+    const { data } = await api.post<Scan>("/api/scans", payload);
+    return data;
+  },
+
+  list: async () => {
+    const { data } = await api.get<Scan[]>("/api/scans");
+    return data;
+  },
+
+  getById: async (id: string) => {
+    const { data } = await api.get<Scan>(`/api/scans/${id}`);
+    return data;
+  },
+
+  getFindings: async (
+    scanId: string,
+    params?: { include_false_positives?: boolean },
+  ) => {
+    const { data } = await api.get<Finding[]>(
+      `/api/scans/${scanId}/findings`,
+      { params },
+    );
+    return data;
+  },
+
+  updateFinding: async (
+    findingId: string,
+    payload: { status: "new" | "confirmed" | "dismissed" },
+  ) => {
+    const { data } = await api.patch<Finding>(
+      `/api/findings/${findingId}`,
+      payload,
+    );
+    return data;
+  },
+};

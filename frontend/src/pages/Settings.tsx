@@ -6,7 +6,7 @@ export default function Settings() {
           Settings
         </h1>
         <p className="mt-1 text-sm text-white/60">
-          Configure integrations, real-time updates, and AI routing.
+          Configure integrations, real-time updates, and AI triage.
         </p>
       </div>
 
@@ -24,7 +24,7 @@ export default function Settings() {
               <div>
                 <div className="font-semibold text-white">GitHub Webhooks</div>
                 <div className="mt-1 text-xs text-white/60">
-                  Ingest issues, comments, and labels into bug triage.
+                  Trigger scans on push/PR and ingest issues when enabled.
                 </div>
               </div>
               <span className="badge border-neon-mint/40 bg-neon-mint/10 text-neon-mint">

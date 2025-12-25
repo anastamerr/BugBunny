@@ -4,6 +4,7 @@ import { RealtimeListener } from "../realtime/RealtimeListener";
 
 const navItems = [
   { to: "/", label: "Dashboard", end: true },
+  { to: "/scans", label: "Scans" },
   { to: "/bugs", label: "Bugs" },
   { to: "/chat", label: "Chat" },
   { to: "/settings", label: "Settings" },
@@ -36,14 +37,14 @@ export function Layout() {
               <div className="flex items-center gap-2">
                 <span className="h-2.5 w-2.5 rounded-pill bg-neon-mint shadow-[0_0_28px_rgba(0,215,104,0.35)]" />
                 <div className="text-xs font-semibold uppercase tracking-[0.2em] text-white/60">
-                  DataBug AI
+                  ScanGuard AI
                 </div>
               </div>
               <div className="mt-2 text-xl font-extrabold tracking-tight">
-                Neon Ops Console
+                Context-Aware Scanner
               </div>
               <div className="mt-1 text-sm text-white/60">
-                Automate bug triage with intelligent routing and deduping.
+                Semgrep with LLM triage for exploitability-aware findings.
               </div>
             </div>
             <div className="h-10 w-10 rounded-card border border-white/10 bg-white/5" />

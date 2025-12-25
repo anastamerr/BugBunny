@@ -21,7 +21,7 @@ class GitHubClient:
             headers={
                 "Authorization": f"Bearer {token}",
                 "Accept": "application/vnd.github+json",
-                "User-Agent": "databug-ai",
+                "User-Agent": "scanguard-ai",
             },
             timeout=30.0,
         )
