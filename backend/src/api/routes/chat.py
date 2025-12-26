@@ -11,7 +11,7 @@ from fastapi.responses import StreamingResponse
 import httpx
 from sqlalchemy.orm import Session
 
-from ...api.deps import get_db
+from ...api.deps import CurrentUser, get_current_user, get_db
 from ...config import get_settings
 from ...integrations.pinecone_client import PineconeService
 from ...models import BugReport, Finding, Scan
@@ -297,6 +297,7 @@ def _build_focus_context(
 def _prepare_chat_prompt(
     payload: ChatRequest,
     db: Session,
+    current_user: CurrentUser,
 ) -> tuple[str, str, str, bool]:
     bug: BugReport | None = None
     scan: Scan | None = None
@@ -313,19 +314,30 @@ def _prepare_chat_prompt(
             raise HTTPException(status_code=404, detail="Bug not found")
 
     if payload.scan_id is not None and scan is None:
-        scan = db.query(Scan).filter(Scan.id == payload.scan_id).first()
+        scan = (
+            db.query(Scan)
+            .filter(Scan.id == payload.scan_id, Scan.user_id == current_user.id)
+            .first()
+        )
         if not scan:
             raise HTTPException(status_code=404, detail="Scan not found")
 
     if payload.finding_id is not None and finding is None:
         finding = (
-            db.query(Finding).filter(Finding.id == payload.finding_id).first()
+            db.query(Finding)
+            .join(Scan, Finding.scan_id == Scan.id)
+            .filter(Finding.id == payload.finding_id, Scan.user_id == current_user.id)
+            .first()
         )
         if not finding:
             raise HTTPException(status_code=404, detail="Finding not found")
 
     if finding is not None and scan is None:
-        scan = db.query(Scan).filter(Scan.id == finding.scan_id).first()
+        scan = (
+            db.query(Scan)
+            .filter(Scan.id == finding.scan_id, Scan.user_id == current_user.id)
+            .first()
+        )
 
     # If user didn't provide specific IDs, we still want the assistant to be useful
     # by attaching recent platform context and a "focus" bug.
@@ -345,10 +357,21 @@ def _prepare_chat_prompt(
         # High-priority bug queue (enterprise triage default).
         bug_q = _priority_order_query(db.query(BugReport)).limit(8).all()
 
-        recent_scans = db.query(Scan).order_by(Scan.created_at.desc()).limit(5).all()
+        recent_scans = (
+            db.query(Scan)
+            .filter(Scan.user_id == current_user.id)
+            .order_by(Scan.created_at.desc())
+            .limit(5)
+            .all()
+        )
         finding_q = (
             _finding_order_query(
-                db.query(Finding).filter(Finding.is_false_positive.is_(False))
+                db.query(Finding)
+                .join(Scan, Finding.scan_id == Scan.id)
+                .filter(
+                    Finding.is_false_positive.is_(False),
+                    Scan.user_id == current_user.id,
+                )
             )
             .limit(8)
             .all()
@@ -357,9 +380,12 @@ def _prepare_chat_prompt(
     if scan is not None and focus_scan:
         scan_findings = (
             _finding_order_query(
-                db.query(Finding).filter(
+                db.query(Finding)
+                .join(Scan, Finding.scan_id == Scan.id)
+                .filter(
                     Finding.scan_id == scan.id,
                     Finding.is_false_positive.is_(False),
+                    Scan.user_id == current_user.id,
                 )
             )
             .limit(8)
@@ -541,9 +567,12 @@ async def _stream_ollama(
 @router.post("/stream")
 async def chat_stream(
     payload: ChatRequest,
+    current_user: CurrentUser = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> StreamingResponse:
-    context, system, prompt, _focus_mode = _prepare_chat_prompt(payload, db)
+    context, system, prompt, _focus_mode = _prepare_chat_prompt(
+        payload, db, current_user
+    )
     settings = get_settings()
     llm = get_llm_service(settings)
 
@@ -595,8 +624,14 @@ async def chat_stream(
 
 
 @router.post("", response_model=ChatResponse)
-async def chat(payload: ChatRequest, db: Session = Depends(get_db)) -> ChatResponse:
-    context, system, prompt, _focus_mode = _prepare_chat_prompt(payload, db)
+async def chat(
+    payload: ChatRequest,
+    current_user: CurrentUser = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> ChatResponse:
+    context, system, prompt, _focus_mode = _prepare_chat_prompt(
+        payload, db, current_user
+    )
 
     settings = get_settings()
     llm = get_llm_service(settings)

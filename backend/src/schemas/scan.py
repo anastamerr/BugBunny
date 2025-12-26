@@ -5,7 +5,7 @@ from datetime import datetime
 from enum import Enum
 from typing import List, Optional
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, model_validator
 
 
 class ScanStatus(str, Enum):
@@ -23,8 +23,15 @@ class ScanTrigger(str, Enum):
 
 
 class ScanCreate(BaseModel):
-    repo_url: str
+    repo_url: Optional[str] = None
+    repo_id: Optional[uuid.UUID] = None
     branch: Optional[str] = "main"
+
+    @model_validator(mode="after")
+    def _require_repo(self) -> "ScanCreate":
+        if not self.repo_url and not self.repo_id:
+            raise ValueError("repo_url or repo_id is required")
+        return self
 
 
 class ScanUpdate(BaseModel):
@@ -47,6 +54,7 @@ class ScanRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID
+    repo_id: Optional[uuid.UUID] = None
     repo_url: str
     branch: str
     status: ScanStatus

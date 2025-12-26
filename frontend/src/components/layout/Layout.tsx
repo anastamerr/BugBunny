@@ -1,10 +1,12 @@
 import { NavLink, Outlet } from "react-router-dom";
 
 import { RealtimeListener } from "../realtime/RealtimeListener";
+import { useAuth } from "../../hooks/useAuth";
 
 const navItems = [
   { to: "/", label: "Dashboard", end: true },
   { to: "/scans", label: "Scans" },
+  { to: "/repos", label: "Repositories" },
   { to: "/bugs", label: "Bugs" },
   { to: "/chat", label: "Chat" },
   { to: "/settings", label: "Settings" },
@@ -20,6 +22,8 @@ function linkClass(isActive: boolean) {
 }
 
 export function Layout() {
+  const { user, signOut } = useAuth();
+
   return (
     <div className="relative min-h-screen bg-void text-white">
       <div
@@ -47,7 +51,11 @@ export function Layout() {
                 Semgrep with LLM triage for exploitability-aware findings.
               </div>
             </div>
-            <div className="h-10 w-10 rounded-card border border-white/10 bg-white/5" />
+            <img
+              src="/icon.png"
+              alt="ScanGuard AI logo"
+              className="h-10 w-10 rounded-card border border-white/10 bg-white/5 p-1.5"
+            />
           </div>
 
           <nav className="mt-5 flex flex-wrap gap-2 lg:flex-col">
@@ -63,6 +71,22 @@ export function Layout() {
               </NavLink>
             ))}
           </nav>
+
+          <div className="mt-5 rounded-card border border-white/10 bg-void p-3 text-xs text-white/70">
+            <div className="text-[11px] uppercase tracking-[0.2em] text-white/50">
+              Signed in
+            </div>
+            <div className="mt-1 truncate text-sm text-white/80">
+              {user?.email ?? "unknown"}
+            </div>
+            <button
+              type="button"
+              className="btn-ghost mt-3 w-full justify-center text-xs"
+              onClick={() => signOut()}
+            >
+              Sign out
+            </button>
+          </div>
 
           <div className="mt-5 rounded-card border border-white/10 bg-void p-3 text-xs text-white/70">
             Real-time updates via <span className="font-mono text-white/80">/ws</span>

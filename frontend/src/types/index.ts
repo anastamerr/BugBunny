@@ -23,6 +23,7 @@ export interface BugReport {
 
 export interface Scan {
   id: string;
+  repo_id?: string | null;
   repo_url: string;
   branch: string;
   status: "pending" | "cloning" | "scanning" | "analyzing" | "completed" | "failed";
@@ -38,6 +39,15 @@ export interface Scan {
   rulesets?: string[] | null;
   scanned_files?: number | null;
   semgrep_version?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface Repository {
+  id: string;
+  repo_url: string;
+  repo_full_name?: string | null;
+  default_branch: string;
   created_at: string;
   updated_at: string;
 }

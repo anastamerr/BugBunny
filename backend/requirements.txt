@@ -17,3 +17,4 @@ httpx
 python-socketio
 alembic
 semgrep
+pyjwt

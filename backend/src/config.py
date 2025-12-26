@@ -37,6 +37,9 @@ class Settings(BaseSettings):
     github_backfill_limit: int = 50
     github_backfill_on_start: bool = False
 
+    supabase_jwt_secret: Optional[str] = None
+    supabase_jwt_issuer: Optional[str] = None
+
     if SettingsConfigDict is not None:
         _ENV_FILE = Path(__file__).resolve().parents[1] / ".env"
         model_config = SettingsConfigDict(

@@ -1,4 +1,5 @@
 import { API_BASE, api } from "./client";
+import { supabase } from "../lib/supabase";
 
 export type ChatRequest = {
   message: string;
@@ -22,9 +23,14 @@ export const chatApi = {
     payload: ChatRequest,
     signal?: AbortSignal,
   ): Promise<Response> => {
+    const { data } = await supabase.auth.getSession();
+    const token = data.session?.access_token;
     return fetch(`${API_BASE}/api/chat/stream`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
       body: JSON.stringify(payload),
       signal,
     });

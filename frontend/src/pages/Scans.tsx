@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 
+import { repositoriesApi } from "../api/repositories";
 import { scansApi } from "../api/scans";
 import type { Scan } from "../types";
 
@@ -61,11 +62,16 @@ export default function Scans() {
   const queryClient = useQueryClient();
   const [repoUrl, setRepoUrl] = useState("");
   const [branch, setBranch] = useState("main");
+  const [selectedRepoId, setSelectedRepoId] = useState("");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const { data, isLoading, error } = useQuery({
     queryKey: ["scans"],
     queryFn: () => scansApi.list(),
+  });
+  const { data: repos } = useQuery({
+    queryKey: ["repos"],
+    queryFn: () => repositoriesApi.list(),
   });
 
   const createScan = useMutation({
@@ -80,6 +86,26 @@ export default function Scans() {
     onSuccess: async () => {
       setErrorMessage(null);
       setRepoUrl("");
+      await queryClient.invalidateQueries({ queryKey: ["scans"] });
+    },
+    onError: (error) => {
+      if (error instanceof Error) {
+        setErrorMessage(error.message);
+      } else {
+        setErrorMessage("Failed to trigger scan.");
+      }
+    },
+  });
+
+  const createSavedScan = useMutation({
+    mutationFn: async () => {
+      if (!selectedRepoId) {
+        throw new Error("Select a saved repository.");
+      }
+      return scansApi.create({ repo_id: selectedRepoId });
+    },
+    onSuccess: async () => {
+      setErrorMessage(null);
       await queryClient.invalidateQueries({ queryKey: ["scans"] });
     },
     onError: (error) => {
@@ -123,37 +149,74 @@ export default function Scans() {
           </div>
         </div>
 
-        <div className="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-[1.5fr_0.8fr_auto] lg:items-end">
-          <div>
+        <div className="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-2">
+          <div className="rounded-card border border-white/10 bg-void p-4">
             <div className="text-xs font-semibold uppercase tracking-[0.2em] text-white/60">
-              Repository URL
+              Saved repositories
             </div>
-            <input
+            <select
               className="input mt-2 w-full"
-              placeholder="https://github.com/org/repo"
-              value={repoUrl}
-              onChange={(event) => setRepoUrl(event.target.value)}
-            />
+              value={selectedRepoId}
+              onChange={(event) => setSelectedRepoId(event.target.value)}
+            >
+              <option value="">Select repository</option>
+              {(repos || []).map((repo) => (
+                <option key={repo.id} value={repo.id}>
+                  {repo.repo_full_name || formatRepoName(repo.repo_url)}
+                </option>
+              ))}
+            </select>
+            <div className="mt-3 flex items-center justify-between gap-2 text-xs text-white/50">
+              <span>Manage list in Repositories.</span>
+              <Link to="/repos" className="text-neon-mint hover:text-neon-mint/80">
+                Edit list
+              </Link>
+            </div>
+            <button
+              type="button"
+              className="btn-primary mt-4 w-full"
+              onClick={() => createSavedScan.mutate()}
+              disabled={createSavedScan.isPending || !selectedRepoId}
+            >
+              {createSavedScan.isPending ? "Starting..." : "Scan saved repo"}
+            </button>
           </div>
-          <div>
+
+          <div className="rounded-card border border-white/10 bg-void p-4">
             <div className="text-xs font-semibold uppercase tracking-[0.2em] text-white/60">
-              Branch
+              Quick scan
             </div>
-            <input
-              className="input mt-2 w-full"
-              placeholder="main"
-              value={branch}
-              onChange={(event) => setBranch(event.target.value)}
-            />
+            <div className="mt-3">
+              <div className="text-xs font-semibold uppercase tracking-[0.2em] text-white/60">
+                Repository URL
+              </div>
+              <input
+                className="input mt-2 w-full"
+                placeholder="https://github.com/org/repo"
+                value={repoUrl}
+                onChange={(event) => setRepoUrl(event.target.value)}
+              />
+            </div>
+            <div className="mt-3">
+              <div className="text-xs font-semibold uppercase tracking-[0.2em] text-white/60">
+                Branch
+              </div>
+              <input
+                className="input mt-2 w-full"
+                placeholder="main"
+                value={branch}
+                onChange={(event) => setBranch(event.target.value)}
+              />
+            </div>
+            <button
+              type="button"
+              className="btn-primary mt-4 w-full"
+              onClick={() => createScan.mutate()}
+              disabled={createScan.isPending || !repoUrl.trim()}
+            >
+              {createScan.isPending ? "Starting..." : "Scan repository"}
+            </button>
           </div>
-          <button
-            type="button"
-            className="btn-primary h-11"
-            onClick={() => createScan.mutate()}
-            disabled={createScan.isPending || !repoUrl.trim()}
-          >
-            {createScan.isPending ? "Starting..." : "Scan Repository"}
-          </button>
         </div>
         {errorMessage ? (
           <div className="mt-3 text-sm text-rose-200">{errorMessage}</div>

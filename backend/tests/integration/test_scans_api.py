@@ -5,7 +5,7 @@ from typing import List, Tuple
 
 from fastapi.testclient import TestClient
 
-from src.api.deps import get_db
+from src.api.deps import CurrentUser, get_current_user, get_db
 from src.main import app
 from src.models import Finding, Scan
 
@@ -26,6 +26,13 @@ def _override_db(db_sessionmaker):
     return _get_db
 
 
+TEST_USER_ID = uuid.uuid4()
+
+
+def _override_current_user():
+    return CurrentUser(id=TEST_USER_ID, email="tester@example.com")
+
+
 def test_create_scan_creates_record(db_sessionmaker, monkeypatch):
     from src.api.routes import scans as scans_routes
 
@@ -38,6 +45,7 @@ def test_create_scan_creates_record(db_sessionmaker, monkeypatch):
     monkeypatch.setattr(scans_routes, "sio", DummySio())
 
     app.dependency_overrides[get_db] = _override_db(db_sessionmaker)
+    app.dependency_overrides[get_current_user] = _override_current_user
     client = TestClient(app)
 
     resp = client.post(
@@ -66,10 +74,12 @@ def test_scan_findings_filtering(db_sessionmaker, monkeypatch):
 
     monkeypatch.setattr(scans_routes, "sio", DummySio())
     app.dependency_overrides[get_db] = _override_db(db_sessionmaker)
+    app.dependency_overrides[get_current_user] = _override_current_user
     client = TestClient(app)
 
     db = db_sessionmaker()
     scan = Scan(
+        user_id=TEST_USER_ID,
         repo_url="https://github.com/example/repo",
         branch="main",
         status="completed",
@@ -130,10 +140,12 @@ def test_update_finding_status(db_sessionmaker, monkeypatch):
 
     monkeypatch.setattr(scans_routes, "sio", DummySio())
     app.dependency_overrides[get_db] = _override_db(db_sessionmaker)
+    app.dependency_overrides[get_current_user] = _override_current_user
     client = TestClient(app)
 
     db = db_sessionmaker()
     scan = Scan(
+        user_id=TEST_USER_ID,
         repo_url="https://github.com/example/repo",
         branch="main",
         status="completed",

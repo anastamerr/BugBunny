@@ -1,12 +1,13 @@
 import hashlib
 import hmac
 import json
+import uuid
 
 from fastapi.testclient import TestClient
 
 from src.api.deps import get_db
 from src.main import app
-from src.models import Scan
+from src.models import Repository, Scan
 
 
 class DummySio:
@@ -46,6 +47,19 @@ def test_github_push_webhook_triggers_scan(db_sessionmaker, monkeypatch):
     app.dependency_overrides[get_db] = _override_db(db_sessionmaker)
     client = TestClient(app)
 
+    test_user_id = uuid.uuid4()
+    seed_db = db_sessionmaker()
+    seed_db.add(
+        Repository(
+            user_id=test_user_id,
+            repo_url="https://github.com/acme/tools",
+            repo_full_name="acme/tools",
+            default_branch="main",
+        )
+    )
+    seed_db.commit()
+    seed_db.close()
+
     payload = {
         "ref": "refs/heads/main",
         "after": "a" * 40,
@@ -73,6 +87,7 @@ def test_github_push_webhook_triggers_scan(db_sessionmaker, monkeypatch):
     verify_db = db_sessionmaker()
     scan = verify_db.query(Scan).filter(Scan.repo_url == "https://github.com/acme/tools").first()
     assert scan is not None
+    assert scan.user_id == test_user_id
     assert scan.trigger == "webhook"
     assert scan.commit_sha == "a" * 40
     assert scan.commit_url == f"https://github.com/acme/tools/commit/{'a' * 40}"
@@ -101,6 +116,19 @@ def test_github_pull_request_webhook_triggers_scan(db_sessionmaker, monkeypatch)
 
     app.dependency_overrides[get_db] = _override_db(db_sessionmaker)
     client = TestClient(app)
+
+    test_user_id = uuid.uuid4()
+    seed_db = db_sessionmaker()
+    seed_db.add(
+        Repository(
+            user_id=test_user_id,
+            repo_url="https://github.com/acme/tools",
+            repo_full_name="acme/tools",
+            default_branch="main",
+        )
+    )
+    seed_db.commit()
+    seed_db.close()
 
     payload = {
         "action": "opened",
@@ -136,6 +164,7 @@ def test_github_pull_request_webhook_triggers_scan(db_sessionmaker, monkeypatch)
     verify_db = db_sessionmaker()
     scan = verify_db.query(Scan).filter(Scan.pr_number == 42).first()
     assert scan is not None
+    assert scan.user_id == test_user_id
     assert scan.trigger == "webhook"
     assert scan.branch == "feature/scan"
     assert scan.pr_url == "https://github.com/acme/tools/pull/42"

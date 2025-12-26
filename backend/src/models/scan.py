@@ -1,7 +1,16 @@
 from datetime import datetime
 import uuid
 
-from sqlalchemy import JSON, Column, DateTime, Enum, Integer, String, Text
+from sqlalchemy import (
+    JSON,
+    Column,
+    DateTime,
+    Enum,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+)
 from sqlalchemy.dialects.postgresql import UUID
 
 from .base import Base
@@ -11,6 +20,8 @@ class Scan(Base):
     __tablename__ = "scans"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(UUID(as_uuid=True), nullable=False, index=True)
+    repo_id = Column(UUID(as_uuid=True), ForeignKey("repositories.id"), nullable=True)
     repo_url = Column(String, nullable=False)
     branch = Column(String, nullable=False, default="main")
     status = Column(
