@@ -1,4 +1,4 @@
-# DataBug AI Setup (Supabase + GitHub + ngrok)
+# ScanGuard AI Setup (Supabase + GitHub + ngrok)
 
 ## 1) Backend env (`backend/.env`)
 
@@ -7,9 +7,9 @@ Required:
   - If `db.<project-ref>.supabase.co` fails to resolve/connect (common on IPv4-only networks), use the **Connection pooling (Session)** URL instead:
     - `postgres://<db-user>.<project-ref>:<password>@aws-1-<region>.pooler.supabase.com:5432/postgres?sslmode=require`
 - `PINECONE_API_KEY`, `PINECONE_ENVIRONMENT`
-- `GITHUB_TOKEN` (PAT for backfill/sync)
-- `GITHUB_WEBHOOK_SECRET`
-- `GITHUB_REPOS` (comma-separated, e.g. `anastamerr/Quantumflow`)
+- `GITHUB_TOKEN` (PAT for private repos and sync)
+- `GITHUB_WEBHOOK_SECRET` (for scan triggers)
+- `GITHUB_REPOS` (comma-separated allowlist, e.g. `owner/repo1,owner/repo2`)
 
 Optional:
 - `GITHUB_BACKFILL_LIMIT` (default `50`)
@@ -51,13 +51,22 @@ ngrok config add-authtoken <YOUR_TOKEN>
 ngrok http 8000
 ```
 
-GitHub repo → **Settings → Webhooks → Add webhook**
+GitHub repo **Settings > Webhooks > Add webhook**
 - Payload URL: `https://<ngrok-host>/api/webhooks/github`
 - Content type: `application/json`
 - Secret: your `GITHUB_WEBHOOK_SECRET`
-- Events: enable **Issues** (optional: **Issue comments**)
+- Events: enable **Push** and **Pull requests**
+- Optional: enable **Issues** and **Issue comments** (legacy bug ingestion)
 
-## 5) Initial backfill (recommended)
+## 5) Trigger a scan (manual)
+
+```bash
+curl -X POST http://localhost:8000/api/scans \
+  -H "Content-Type: application/json" \
+  -d '{"repo_url": "https://github.com/OWASP/WebGoat", "branch": "main"}'
+```
+
+## 6) Initial backfill (optional)
 
 Pull the latest issues from the configured repos and ingest them into the DB:
 ```bash

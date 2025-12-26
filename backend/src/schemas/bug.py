@@ -49,10 +49,6 @@ class BugReportBase(BaseModel):
     classified_severity: Optional[BugSeverity] = None
     confidence_score: Optional[float] = None
 
-    is_data_related: bool = False
-    correlated_incident_id: Optional[uuid.UUID] = None
-    correlation_score: Optional[float] = None
-
     is_duplicate: bool = False
     duplicate_of_id: Optional[uuid.UUID] = None
     duplicate_score: Optional[float] = None
@@ -76,10 +72,6 @@ class BugReportUpdate(BaseModel):
     classified_component: Optional[str] = None
     classified_severity: Optional[BugSeverity] = None
     confidence_score: Optional[float] = None
-
-    is_data_related: Optional[bool] = None
-    correlated_incident_id: Optional[uuid.UUID] = None
-    correlation_score: Optional[float] = None
 
     is_duplicate: Optional[bool] = None
     duplicate_of_id: Optional[uuid.UUID] = None

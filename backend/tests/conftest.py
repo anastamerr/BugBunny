@@ -71,19 +71,6 @@ def mock_ollama():
 
 
 @pytest.fixture
-def sample_incident():
-    """Sample incident for testing."""
-    return {
-        "incident_id": "DI-2025-01-15-001",
-        "table_name": "user_transactions",
-        "incident_type": "SCHEMA_DRIFT",
-        "severity": "CRITICAL",
-        "affected_columns": ["user_id"],
-        "downstream_systems": ["analytics_dashboard", "user_api"],
-    }
-
-
-@pytest.fixture
 def sample_bug():
     """Sample bug for testing."""
     return {

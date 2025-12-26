@@ -2,9 +2,11 @@ from datetime import datetime, timezone
 
 from fastapi.testclient import TestClient
 
-from src.api.deps import get_db
+import uuid
+
+from src.api.deps import CurrentUser, get_current_user, get_db
 from src.main import app
-from src.models import DataIncident
+from src.models import BugReport
 
 
 def test_chat_fallback_when_ollama_unavailable(db_sessionmaker, monkeypatch):
@@ -29,35 +31,45 @@ def test_chat_fallback_when_ollama_unavailable(db_sessionmaker, monkeypatch):
         finally:
             db.close()
 
+    test_user_id = uuid.uuid4()
+
+    def override_current_user():
+        return CurrentUser(id=test_user_id, email="tester@example.com")
+
     app.dependency_overrides[get_db] = override_get_db
+    app.dependency_overrides[get_current_user] = override_current_user
     client = TestClient(app)
 
     seed_db = db_sessionmaker()
-    incident = DataIncident(
-        incident_id="DI-001",
-        timestamp=datetime.now(timezone.utc),
-        table_name="user_transactions",
-        incident_type="SCHEMA_DRIFT",
-        severity="CRITICAL",
-        status="ACTIVE",
+    bug = BugReport(
+        bug_id="GH-001",
+        source="github",
+        title="Revenue dashboard shows $0",
+        description="Dashboard shows $0 for all regions.",
+        created_at=datetime.now(timezone.utc),
+        classified_type="bug",
+        classified_component="analytics_dashboard",
+        classified_severity="critical",
+        confidence_score=0.9,
+        status="new",
     )
-    seed_db.add(incident)
+    seed_db.add(bug)
     seed_db.commit()
-    seed_db.refresh(incident)
-    incident_uuid = str(incident.id)
+    seed_db.refresh(bug)
+    bug_uuid = str(bug.id)
     seed_db.close()
 
     resp = client.post(
         "/api/chat",
         json={
             "message": "Explain the likely root cause.",
-            "incident_id": incident_uuid,
+            "bug_id": bug_uuid,
         },
     )
     assert resp.status_code == 200
     payload = resp.json()
     assert payload["used_llm"] is False
     assert "LLM is unavailable" in payload["response"]
-    assert "user_transactions" in payload["response"]
+    assert "Revenue dashboard shows $0" in payload["response"]
 
     app.dependency_overrides.clear()

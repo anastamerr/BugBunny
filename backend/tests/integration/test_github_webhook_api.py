@@ -1,12 +1,13 @@
 import hashlib
 import hmac
 import json
+import uuid
 
 from fastapi.testclient import TestClient
 
 from src.api.deps import get_db
 from src.main import app
-from src.models import BugReport
+from src.models import BugReport, Repository
 
 
 def test_github_issues_webhook_creates_bug(db_sessionmaker, monkeypatch):
@@ -32,7 +33,7 @@ def test_github_issues_webhook_creates_bug(db_sessionmaker, monkeypatch):
             }
 
     class DummyRouter:
-        def route_bug(self, classification, is_data_related=False, correlation_score=None):
+        def route_bug(self, classification):
             return {"team": "backend_team"}
 
     monkeypatch.setattr(
@@ -50,6 +51,18 @@ def test_github_issues_webhook_creates_bug(db_sessionmaker, monkeypatch):
 
     app.dependency_overrides[get_db] = override_get_db
     client = TestClient(app)
+
+    seed_db = db_sessionmaker()
+    seed_db.add(
+        Repository(
+            user_id=uuid.uuid4(),
+            repo_url="https://github.com/anastamerr/Quantumflow",
+            repo_full_name="anastamerr/Quantumflow",
+            default_branch="main",
+        )
+    )
+    seed_db.commit()
+    seed_db.close()
 
     payload = {
         "action": "opened",
@@ -114,7 +127,7 @@ def test_github_issue_comment_webhook_updates_bug_labels(db_sessionmaker, monkey
             }
 
     class DummyRouter:
-        def route_bug(self, classification, is_data_related=False, correlation_score=None):
+        def route_bug(self, classification):
             return {"team": "backend_team"}
 
     monkeypatch.setattr(
@@ -132,6 +145,18 @@ def test_github_issue_comment_webhook_updates_bug_labels(db_sessionmaker, monkey
 
     app.dependency_overrides[get_db] = override_get_db
     client = TestClient(app)
+
+    seed_db = db_sessionmaker()
+    seed_db.add(
+        Repository(
+            user_id=uuid.uuid4(),
+            repo_url="https://github.com/anastamerr/Quantumflow",
+            repo_full_name="anastamerr/Quantumflow",
+            default_branch="main",
+        )
+    )
+    seed_db.commit()
+    seed_db.close()
 
     payload = {
         "action": "created",

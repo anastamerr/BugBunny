@@ -4,21 +4,23 @@ import type { BugReport } from "../../types";
 
 type Props = {
   bugs: BugReport[];
+  title?: string;
+  emptyLabel?: string;
 };
 
-export function BugQueue({ bugs }: Props) {
+export function BugQueue({ bugs, title = "Bug Queue", emptyLabel = "No new bugs." }: Props) {
   return (
     <div className="surface-solid p-5">
       <div className="mb-4 flex items-center justify-between gap-3">
         <div className="text-sm font-semibold tracking-tight text-white">
-          Bug Queue
+          {title}
         </div>
         <div className="badge">{bugs.length} items</div>
       </div>
 
       <div className="space-y-2">
         {bugs.length === 0 && (
-          <div className="text-sm text-white/60">No new bugs.</div>
+          <div className="text-sm text-white/60">{emptyLabel}</div>
         )}
 
         {bugs.map((bug) => (
@@ -32,7 +34,7 @@ export function BugQueue({ bugs }: Props) {
                 {bug.title}
               </div>
               <div className="mt-1 text-xs font-medium text-white/60">
-                {bug.classified_component} • {bug.classified_severity}
+                {bug.classified_component} - {bug.classified_severity}
               </div>
             </div>
             <div className="badge">{bug.status}</div>

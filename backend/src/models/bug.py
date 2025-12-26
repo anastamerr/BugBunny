@@ -26,15 +26,6 @@ class BugReport(Base):
     )
     confidence_score = Column(Float)
 
-    # Correlation results
-    is_data_related = Column(Boolean, default=False)
-    correlated_incident_id = Column(
-        UUID(as_uuid=True),
-        ForeignKey("data_incidents.id"),
-        nullable=True,
-    )
-    correlation_score = Column(Float, nullable=True)
-
     # Duplicate detection
     is_duplicate = Column(Boolean, default=False)
     duplicate_of_id = Column(

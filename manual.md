@@ -1,12 +1,13 @@
-# DataBug AI Manual (Runbook)
+# ScanGuard AI Manual (Runbook)
 
-This file explains how to bring up the **backend + frontend** together for local development and for a demo.
+This file explains how to bring up the **backend + frontend** together for local development and for a demo of context-aware Semgrep scans.
 
 ## Prerequisites
 
 - Windows PowerShell (examples below use PowerShell)
 - Python installed (project currently tests with Python 3.x)
 - Node.js + npm installed
+- Git installed (required for repo cloning during scans)
 - (Optional) Docker Desktop (if you want Docker-based services)
 
 ## 1) Configure env vars
@@ -17,14 +18,15 @@ Create/update `backend/.env` (this file is gitignored). Minimum recommended:
 
 - `DATABASE_URL` (Supabase Postgres, include `sslmode=require`)
 - `REDIS_URL` (default in compose: `redis://redis:6379/0`)
-- `PINECONE_API_KEY`, `PINECONE_ENVIRONMENT`
-- GitHub ingestion:
-  - `GITHUB_TOKEN`
-  - `GITHUB_WEBHOOK_SECRET`
-  - `GITHUB_REPOS` (comma-separated `owner/repo`)
-- LLM (cloud via OpenRouter):
+- LLM (cloud via OpenRouter or local via Ollama):
   - `OPEN_ROUTER_API_KEY`
   - `OPEN_ROUTER_MODEL` (example: `meta-llama/llama-3.1-8b-instruct`)
+- Pinecone (optional, used for dedupe):
+  - `PINECONE_API_KEY`, `PINECONE_ENVIRONMENT`
+- GitHub (for scans and webhooks):
+  - `GITHUB_TOKEN` (required for private repos)
+  - `GITHUB_WEBHOOK_SECRET`
+  - `GITHUB_REPOS` (comma-separated `owner/repo` allowlist)
 
 Reference template: `backend/.env.example` (or `.env.example`)
 
@@ -32,7 +34,7 @@ Reference template: `backend/.env.example` (or `.env.example`)
 
 From `backend/`:
 
-- If your network can’t resolve `db.<ref>.supabase.co` (IPv6-only), use the Supabase **Session Pooler** connection string.
+- If your network can't resolve `db.<ref>.supabase.co` (IPv6-only), use the Supabase **Session Pooler** connection string.
 - Optional: set `ALEMBIC_DATABASE_URL` (Session Pooler) while keeping `DATABASE_URL` for runtime.
 
 ```powershell
@@ -80,7 +82,7 @@ The frontend reads `VITE_API_URL` from `frontend/.env` (or defaults). For local 
 
 - `VITE_API_URL=http://localhost:8000`
 
-## 5) GitHub webhook + ngrok (real ingestion)
+## 5) GitHub webhook + ngrok (scan triggers)
 
 Expose the backend for GitHub webhooks:
 
@@ -101,28 +103,34 @@ This will update any existing `ngrok-free.app` webhook URL to:
 `https://<current-ngrok-host>/api/webhooks/github`
 and trigger a GitHub ping for verification.
 
-In your GitHub repo settings → Webhooks:
+In your GitHub repo settings > Webhooks:
 - Payload URL: `https://<ngrok-host>/api/webhooks/github`
 - Content type: `application/json`
 - Secret: your `GITHUB_WEBHOOK_SECRET`
-- Events: enable **Issues** and **Issue comments**
+- Events: enable **Push** and **Pull requests**
+- Optional: enable **Issues** and **Issue comments** for bug ingestion
 
-You can also backfill existing issues into the DB:
+## 6) Run a scan manually
 
 ```powershell
-cd backend
-.\.venv\Scripts\python -m src.integrations.github_backfill
+irm -Method Post http://localhost:8000/api/scans `
+  -ContentType "application/json" `
+  -Body '{"repo_url":"https://github.com/OWASP/WebGoat","branch":"main"}'
 ```
 
-## 6) Common checks
+## 7) Common checks
 
 - Backend health: `GET /api/health`
-- Bugs list: `GET /api/bugs`
-- Predictions: `GET /api/predictions`
-- Chat: `POST /api/chat` (uses OpenRouter if `OPEN_ROUTER_API_KEY` is set)
+- Scans: `GET /api/scans`
+- Scan findings: `GET /api/scans/{id}/findings`
+- Findings list: `GET /api/findings`
+- Bugs list (legacy): `GET /api/bugs`
+- Chat: `POST /api/chat`
 
 ## Troubleshooting
 
+- Semgrep not found: install dependencies via `pip install -r backend/requirements.txt` or use Docker.
+- Git clone fails: ensure `GITHUB_TOKEN` has access to private repos.
 - Supabase connection fails: use Supabase **Session Pooler** host and ensure `sslmode=require`.
 - Alembic uses `db` host: set `DATABASE_URL` in `backend/.env` (see `backend/.env.example`).
 - Supabase `db.<ref>.supabase.co` not resolvable: your network may be IPv4-only while the direct host is IPv6-only; switch to the Supabase **Connection pooling** DATABASE_URL (pooler host).

@@ -70,7 +70,7 @@ export default function Bugs() {
                     </span>
                   </td>
                   <td className="px-4 py-3 text-white/60">
-                    {bug.assigned_team || "—"}
+                    {bug.assigned_team || "n/a"}
                   </td>
                   <td className="px-4 py-3">
                     <span className="badge">{bug.status}</span>

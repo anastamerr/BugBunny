@@ -27,12 +27,11 @@ def backfill_github_issues() -> Dict[str, int]:
     try:
         for repo in repos:
             for issue in client.iter_issues(repo, limit=settings.github_backfill_limit):
-                _bug, was_created, _corr, _incident = ingestor.upsert_issue(
+                _bug, was_created = ingestor.upsert_issue(
                     session,
                     repo_full_name=repo,
                     issue=issue,
                     action=None,
-                    auto_correlate=True,
                 )
                 if was_created:
                     created += 1

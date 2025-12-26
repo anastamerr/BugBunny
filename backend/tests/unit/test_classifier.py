@@ -1,7 +1,7 @@
 from unittest.mock import MagicMock
 
 
-def test_classify_returns_predictions_and_confidence():
+def test_classify_returns_confidence():
     from src.services.bug_triage.classifier import BugClassifier
 
     classifier = BugClassifier.__new__(BugClassifier)

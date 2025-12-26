@@ -13,7 +13,7 @@ except ImportError:  # pragma: no cover
 
 
 class Settings(BaseSettings):
-    database_url: str = "postgresql://postgres:postgres@db:5432/databug"
+    database_url: str = "postgresql://postgres:postgres@db:5432/scanguard"
     # Optional override used only for Alembic migrations (e.g. Supabase Session Pooler).
     alembic_database_url: Optional[str] = None
     redis_url: str = "redis://redis:6379/0"
@@ -24,7 +24,7 @@ class Settings(BaseSettings):
 
     llm_provider: str = "auto"  # auto | ollama | openrouter
     open_router_api_key: Optional[str] = None
-    open_router_model: str = "meta-llama/llama-3.1-8b-instruct"
+    open_router_model: str = "google/gemini-2.0-flash-lite-001"
     open_router_base_url: str = "https://openrouter.ai/api/v1"
     open_router_site_url: Optional[str] = None
     open_router_app_name: Optional[str] = None
@@ -36,6 +36,9 @@ class Settings(BaseSettings):
     repo_list: Optional[str] = None  # legacy alias for github_repos
     github_backfill_limit: int = 50
     github_backfill_on_start: bool = False
+
+    supabase_jwt_secret: Optional[str] = None
+    supabase_jwt_issuer: Optional[str] = None
 
     if SettingsConfigDict is not None:
         _ENV_FILE = Path(__file__).resolve().parents[1] / ".env"

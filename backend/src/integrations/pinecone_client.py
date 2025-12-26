@@ -23,24 +23,24 @@ class PineconeService:
         indexes = self.pc.list_indexes()
         existing = [idx.name for idx in indexes]
 
-        if "databug-bugs" not in existing:
+        if "scanguard-bugs" not in existing:
             self.pc.create_index(
-                name="databug-bugs",
+                name="scanguard-bugs",
                 dimension=384,
                 metric="cosine",
                 spec=ServerlessSpec(cloud="aws", region="us-east-1"),
             )
 
-        if "databug-patterns" not in existing:
+        if "scanguard-patterns" not in existing:
             self.pc.create_index(
-                name="databug-patterns",
+                name="scanguard-patterns",
                 dimension=384,
                 metric="cosine",
                 spec=ServerlessSpec(cloud="aws", region="us-east-1"),
             )
 
-        self.bugs_index = self.pc.Index("databug-bugs")
-        self.patterns_index = self.pc.Index("databug-patterns")
+        self.bugs_index = self.pc.Index("scanguard-bugs")
+        self.patterns_index = self.pc.Index("scanguard-patterns")
 
     def embed_text(self, text: str) -> List[float]:
         embedding = self.encoder.encode(text)

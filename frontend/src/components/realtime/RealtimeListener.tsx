@@ -8,33 +8,33 @@ export function RealtimeListener() {
   const socket = useWebSocket();
 
   useEffect(() => {
-    const invalidateIncidents = () =>
-      queryClient.invalidateQueries({ queryKey: ["incidents"] });
     const invalidateBugs = () =>
       queryClient.invalidateQueries({ queryKey: ["bugs"] });
-    const invalidateCorrelations = () =>
-      queryClient.invalidateQueries({ queryKey: ["correlations"] });
-    const invalidatePredictions = () =>
-      queryClient.invalidateQueries({ queryKey: ["predictions"] });
+    const invalidateScans = () =>
+      queryClient.invalidateQueries({ queryKey: ["scans"] });
+    const invalidateFindings = () =>
+      queryClient.invalidateQueries({ queryKey: ["findings"] });
+    const handleScanCompleted = () => {
+      invalidateScans();
+      invalidateFindings();
+    };
 
-    socket.on("incident.created", invalidateIncidents);
-    socket.on("incident.updated", invalidateIncidents);
-    socket.on("incident.action.created", invalidateIncidents);
-    socket.on("incident.action.updated", invalidateIncidents);
     socket.on("bug.created", invalidateBugs);
     socket.on("bug.updated", invalidateBugs);
-    socket.on("correlation.created", invalidateCorrelations);
-    socket.on("prediction.created", invalidatePredictions);
+    socket.on("scan.created", invalidateScans);
+    socket.on("scan.updated", invalidateScans);
+    socket.on("scan.completed", handleScanCompleted);
+    socket.on("scan.failed", invalidateScans);
+    socket.on("finding.updated", invalidateFindings);
 
     return () => {
-      socket.off("incident.created", invalidateIncidents);
-      socket.off("incident.updated", invalidateIncidents);
-      socket.off("incident.action.created", invalidateIncidents);
-      socket.off("incident.action.updated", invalidateIncidents);
       socket.off("bug.created", invalidateBugs);
       socket.off("bug.updated", invalidateBugs);
-      socket.off("correlation.created", invalidateCorrelations);
-      socket.off("prediction.created", invalidatePredictions);
+      socket.off("scan.created", invalidateScans);
+      socket.off("scan.updated", invalidateScans);
+      socket.off("scan.completed", handleScanCompleted);
+      socket.off("scan.failed", invalidateScans);
+      socket.off("finding.updated", invalidateFindings);
     };
   }, [queryClient, socket]);
 

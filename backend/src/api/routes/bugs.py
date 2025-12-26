@@ -13,7 +13,12 @@ from ...integrations.pinecone_client import PineconeService
 from ...models import BugReport
 from ...schemas.bug import BugReportCreate, BugReportRead, BugReportUpdate
 from ...realtime import sio
-from ...services.bug_triage import AutoRouter, BugClassifier, DuplicateDetector
+from ...services.bug_triage import (
+    AutoRouter,
+    BugClassifier,
+    BugCorrelationService,
+    DuplicateDetector,
+)
 
 router = APIRouter(prefix="/bugs", tags=["bugs"])
 
@@ -39,6 +44,14 @@ def get_duplicate_detector() -> Optional[DuplicateDetector]:
     except Exception:
         return None
     return DuplicateDetector(pinecone)
+
+
+def get_correlation_service() -> BugCorrelationService:
+    try:
+        pinecone = get_pinecone()
+    except Exception:
+        pinecone = None
+    return BugCorrelationService(pinecone)
 
 
 @router.post(
@@ -102,11 +115,7 @@ def create_bug(
             pass
 
     auto_router = get_router()
-    routing = auto_router.route_bug(
-        classification,
-        is_data_related=bug.is_data_related,
-        correlation_score=bug.correlation_score,
-    )
+    routing = auto_router.route_bug(classification)
     bug.assigned_team = routing["team"]
     db.add(bug)
     db.commit()
@@ -121,18 +130,19 @@ def create_bug(
 @router.get("", response_model=List[BugReportRead])
 def list_bugs(
     status_filter: Optional[str] = Query(default=None, alias="status"),
-    is_data_related: Optional[bool] = Query(default=None, alias="is_data_related"),
     sort: str = Query(default="priority", alias="sort"),
+    limit: Optional[int] = Query(default=None, ge=1, le=100),
     db: Session = Depends(get_db),
 ) -> List[BugReport]:
     q = db.query(BugReport)
     if status_filter:
         q = q.filter(BugReport.status == status_filter)
-    if is_data_related is not None:
-        q = q.filter(BugReport.is_data_related == is_data_related)
 
     if sort == "created_at":
-        return q.order_by(BugReport.created_at.desc()).all()
+        q = q.order_by(BugReport.created_at.desc())
+        if limit is not None:
+            q = q.limit(limit)
+        return q.all()
 
     severity_rank = case(
         (BugReport.classified_severity == "critical", 4),
@@ -142,18 +152,15 @@ def list_bugs(
         else_=0,
     )
     status_rank = case((BugReport.status == "resolved", 0), else_=1)
-    data_rank = case((BugReport.is_data_related.is_(True), 1), else_=0)
 
-    return (
-        q.order_by(
-            desc(status_rank),
-            desc(severity_rank),
-            desc(data_rank),
-            BugReport.correlation_score.desc().nullslast(),
-            BugReport.created_at.desc(),
-        )
-        .all()
+    q = q.order_by(
+        desc(status_rank),
+        desc(severity_rank),
+        BugReport.created_at.desc(),
     )
+    if limit is not None:
+        q = q.limit(limit)
+    return q.all()
 
 
 @router.get("/{bug_id}", response_model=BugReportRead)
@@ -181,6 +188,13 @@ def get_duplicates(bug_id: str, db: Session = Depends(get_db)):
         title=bug.title,
         description=bug.description or "",
     )
+
+
+@router.get("/{bug_id}/correlations")
+def get_correlations(bug_id: str, db: Session = Depends(get_db)):
+    bug = get_bug(bug_id, db)
+    correlator = get_correlation_service()
+    return correlator.find_correlated(bug, db, top_k=10)
 
 
 @router.patch("/{bug_id}", response_model=BugReportRead)

@@ -46,15 +46,26 @@ function getGitHubComments(bug: BugReport): GitHubComment[] {
 }
 
 function displayValue(value: unknown) {
-  if (value === null || value === undefined) return "—";
+  if (value === null || value === undefined) return "n/a";
   const text = String(value).trim();
-  return text.length ? text : "—";
+  return text.length ? text : "n/a";
 }
 
 function safeDate(value?: string | null) {
-  if (!value) return "—";
+  if (!value) return "n/a";
   const dt = new Date(value);
-  return Number.isNaN(dt.getTime()) ? "—" : dt.toLocaleString();
+  return Number.isNaN(dt.getTime()) ? "n/a" : dt.toLocaleString();
+}
+
+function formatCorrelationMeta(meta: {
+  status?: string | null;
+  component?: string | null;
+  severity?: string | null;
+}) {
+  const parts = [meta.status, meta.component, meta.severity]
+    .map((item) => (typeof item === "string" ? item.trim() : ""))
+    .filter(Boolean);
+  return parts.length ? parts.join(" · ") : "n/a";
 }
 
 export default function BugDetail() {
@@ -72,9 +83,9 @@ export default function BugDetail() {
     enabled: Boolean(id),
   });
 
-  const { data: duplicates } = useQuery({
-    queryKey: ["bugs", id, "duplicates"],
-    queryFn: () => bugsApi.getDuplicates(id as string),
+  const { data: correlations } = useQuery({
+    queryKey: ["bugs", id, "correlations"],
+    queryFn: () => bugsApi.getCorrelations(id as string),
     enabled: Boolean(id),
   });
 
@@ -194,7 +205,7 @@ export default function BugDetail() {
             Description
           </div>
           <div className="mt-4 whitespace-pre-wrap text-sm text-white/80">
-            {displayValue(bug.description) === "—"
+            {displayValue(bug.description) === "n/a"
               ? "No description provided."
               : displayValue(bug.description)}
           </div>
@@ -216,21 +227,14 @@ export default function BugDetail() {
                 {displayValue(bug.assigned_team)}
               </dd>
 
-              <dt className="text-white/60">Data-related</dt>
-              <dd className="font-semibold text-white">
-                {bug.is_data_related ? "Yes" : "No"}
-              </dd>
-
-              <dt className="text-white/60">Correlation</dt>
-              <dd className="font-semibold text-white">
-                {bug.correlation_score === undefined || bug.correlation_score === null
-                  ? "—"
-                  : bug.correlation_score.toFixed(3)}
-              </dd>
-
               <dt className="text-white/60">Duplicate</dt>
               <dd className="font-semibold text-white">
                 {bug.is_duplicate ? "Yes" : "No"}
+              </dd>
+
+              <dt className="text-white/60">Correlated</dt>
+              <dd className="font-semibold text-white">
+                {(correlations || []).length}
               </dd>
             </dl>
 
@@ -309,14 +313,14 @@ export default function BugDetail() {
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         <div className="surface-solid overflow-hidden">
           <div className="border-b border-white/10 bg-surface px-5 py-4 text-sm font-semibold tracking-tight text-white">
-            Duplicate Matches
+            Correlated Bugs
           </div>
           <div className="p-5">
-            {(duplicates || []).length === 0 ? (
-              <div className="text-sm text-white/60">No duplicates found.</div>
+            {(correlations || []).length === 0 ? (
+              <div className="text-sm text-white/60">No correlated bugs found.</div>
             ) : (
               <div className="space-y-2 text-sm">
-                {(duplicates || []).slice(0, 10).map((match) => (
+                {(correlations || []).slice(0, 10).map((match) => (
                   <div
                     key={match.bug_id}
                     className="flex items-center justify-between gap-4 rounded-card border border-white/10 bg-surface px-4 py-3 transition-colors duration-200 ease-fluid hover:border-neon-mint/40"
@@ -331,11 +335,16 @@ export default function BugDetail() {
                         </Link>
                       </div>
                       <div className="mt-1 text-xs text-white/60">
-                        {displayValue(match.status)}
+                        {formatCorrelationMeta(match)}
                       </div>
                     </div>
-                    <div className="badge font-mono text-white/80">
-                      {(match.similarity_score ?? 0).toFixed(3)}
+                    <div className="flex items-center gap-2">
+                      {match.relationship === "duplicate" ? (
+                        <div className="badge text-white/80">dup</div>
+                      ) : null}
+                      <div className="badge font-mono text-white/80">
+                        {(match.score ?? 0).toFixed(3)}
+                      </div>
                     </div>
                   </div>
                 ))}
@@ -361,7 +370,7 @@ export default function BugDetail() {
                     <div className="flex flex-wrap items-center justify-between gap-3 text-xs text-white/60">
                       <div className="truncate">
                         {displayValue(comment.user)}
-                        {comment.created_at ? ` • ${safeDate(comment.created_at)}` : ""}
+                        {comment.created_at ? ` - ${safeDate(comment.created_at)}` : ""}
                       </div>
                       {comment.url ? (
                         <a

@@ -1,27 +1,3 @@
-export interface DataIncident {
-  id: string;
-  incident_id: string;
-  timestamp: string;
-  table_name: string;
-  incident_type:
-    | "SCHEMA_DRIFT"
-    | "NULL_SPIKE"
-    | "VOLUME_ANOMALY"
-    | "FRESHNESS"
-    | "DISTRIBUTION_DRIFT"
-    | "VALIDATION_FAILURE";
-  severity: "CRITICAL" | "HIGH" | "MEDIUM" | "LOW";
-  details: Record<string, unknown>;
-  affected_columns: string[];
-  anomaly_score: number;
-  downstream_systems: string[];
-  status: "ACTIVE" | "INVESTIGATING" | "RESOLVED";
-  related_bugs_count?: number;
-  resolved_at?: string | null;
-  resolution_notes?: string | null;
-  created_at?: string | null;
-}
-
 export interface BugReport {
   id: string;
   bug_id: string;
@@ -36,9 +12,6 @@ export interface BugReport {
   classified_component: string;
   classified_severity: "critical" | "high" | "medium" | "low";
   confidence_score?: number | null;
-  is_data_related: boolean;
-  correlated_incident_id?: string | null;
-  correlation_score?: number;
   is_duplicate: boolean;
   duplicate_of_id?: string | null;
   duplicate_score?: number | null;
@@ -48,38 +21,60 @@ export interface BugReport {
   embedding_id?: string | null;
 }
 
-export interface Correlation {
+export interface Scan {
   id: string;
-  bug: BugReport;
-  incident: DataIncident;
-  correlation_score: number;
-  explanation: string;
+  repo_id?: string | null;
+  repo_url: string;
+  branch: string;
+  status: "pending" | "cloning" | "scanning" | "analyzing" | "completed" | "failed";
+  trigger: "manual" | "webhook";
+  total_findings: number;
+  filtered_findings: number;
+  error_message?: string | null;
+  pr_number?: number | null;
+  pr_url?: string | null;
+  commit_sha?: string | null;
+  commit_url?: string | null;
+  detected_languages?: string[] | null;
+  rulesets?: string[] | null;
+  scanned_files?: number | null;
+  semgrep_version?: string | null;
+  created_at: string;
+  updated_at: string;
 }
 
-export interface BugPrediction {
+export interface Repository {
   id: string;
-  incident: DataIncident;
-  predicted_bug_count: number;
-  predicted_components: string[];
-  confidence: number;
-  prediction_window_hours: number;
+  repo_url: string;
+  repo_full_name?: string | null;
+  default_branch: string;
+  created_at: string;
+  updated_at: string;
 }
 
-export interface IncidentAction {
+export interface Finding {
   id: string;
-  incident_id: string;
-  title: string;
-  description?: string | null;
-  owner_team?: string | null;
-  status: "todo" | "doing" | "done";
-  source: "generated" | "manual";
-  sort_order?: number | null;
-  created_at?: string | null;
-  completed_at?: string | null;
-}
-
-export interface IncidentPostmortem {
-  incident_id: string;
-  markdown: string;
-  generated_at: string;
+  scan_id: string;
+  rule_id: string;
+  rule_message?: string | null;
+  semgrep_severity: "ERROR" | "WARNING" | "INFO";
+  ai_severity?: "critical" | "high" | "medium" | "low" | "info" | null;
+  is_false_positive: boolean;
+  ai_reasoning?: string | null;
+  ai_confidence?: number | null;
+  exploitability?: string | null;
+  file_path: string;
+  line_start: number;
+  line_end: number;
+  code_snippet?: string | null;
+  context_snippet?: string | null;
+  function_name?: string | null;
+  class_name?: string | null;
+  is_test_file: boolean;
+  is_generated: boolean;
+  imports?: string[] | null;
+  status: "new" | "confirmed" | "dismissed";
+  priority_score?: number | null;
+  created_at: string;
+  updated_at: string;
 }

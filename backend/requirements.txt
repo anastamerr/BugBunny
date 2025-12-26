@@ -16,3 +16,5 @@ scikit-learn
 httpx
 python-socketio
 alembic
+semgrep
+pyjwt

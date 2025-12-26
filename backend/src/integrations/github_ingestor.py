@@ -6,9 +6,8 @@ from typing import Any, Dict, Optional, Tuple
 
 from sqlalchemy.orm import Session
 
-from ..models import BugIncidentCorrelation, BugReport, DataIncident
+from ..models import BugReport
 from ..services.bug_triage import AutoRouter, BugClassifier, DuplicateDetector
-from ..services.correlation.temporal_matcher import TemporalMatcher
 from .github_client import parse_github_timestamp
 
 
@@ -85,8 +84,7 @@ class GitHubIngestor:
         repo_full_name: str,
         issue: Dict[str, Any],
         action: Optional[str] = None,
-        auto_correlate: bool = True,
-    ) -> Tuple[BugReport, bool, Optional[BugIncidentCorrelation], Optional[DataIncident]]:
+    ) -> Tuple[BugReport, bool]:
         issue_state = str(issue.get("state") or "").lower().strip()
         fields = issue_to_bug_fields(repo_full_name, issue)
 
@@ -141,11 +139,7 @@ class GitHubIngestor:
         bug.classified_severity = classification["severity"]
         bug.confidence_score = classification["overall_confidence"]
 
-        routing = self.auto_router.route_bug(
-            classification,
-            is_data_related=bug.is_data_related,
-            correlation_score=bug.correlation_score,
-        )
+        routing = self.auto_router.route_bug(classification)
         bug.assigned_team = routing["team"]
         db.add(bug)
         db.commit()
@@ -185,58 +179,7 @@ class GitHubIngestor:
             except Exception:
                 pass
 
-        corr: BugIncidentCorrelation | None = None
-        incident: DataIncident | None = None
-
-        if auto_correlate and action != "closed":
-            matcher = TemporalMatcher(db)
-            matches = matcher.find_correlated_incidents(bug)
-            if matches:
-                incident, score = matches[0]
-                bug.is_data_related = True
-                bug.correlated_incident_id = incident.id
-                bug.correlation_score = score
-                db.add(bug)
-                db.commit()
-                db.refresh(bug)
-
-                existing = (
-                    db.query(BugIncidentCorrelation)
-                    .filter(
-                        BugIncidentCorrelation.bug_id == bug.id,
-                        BugIncidentCorrelation.incident_id == incident.id,
-                    )
-                    .first()
-                )
-                explanation = (
-                    f"Likely root cause: {incident.incident_type} in "
-                    f"{incident.table_name} impacting {bug.classified_component}."
-                )
-                if existing:
-                    existing.correlation_score = score
-                    existing.temporal_score = matcher._temporal_score(bug, incident)
-                    existing.component_score = matcher._component_score(bug, incident)
-                    existing.keyword_score = matcher._keyword_score(bug, incident)
-                    if not existing.explanation:
-                        existing.explanation = explanation
-                    corr = existing
-                else:
-                    corr = BugIncidentCorrelation(
-                        bug_id=bug.id,
-                        incident_id=incident.id,
-                        correlation_score=score,
-                        temporal_score=matcher._temporal_score(bug, incident),
-                        component_score=matcher._component_score(bug, incident),
-                        keyword_score=matcher._keyword_score(bug, incident),
-                        explanation=explanation,
-                    )
-                    db.add(corr)
-
-                db.commit()
-                if corr is not None:
-                    db.refresh(corr)
-
-        return bug, created, corr, incident
+        return bug, created
 
     def upsert_issue_comment(
         self,
@@ -246,14 +189,12 @@ class GitHubIngestor:
         issue: Dict[str, Any],
         comment: Dict[str, Any],
         action: Optional[str] = None,
-        auto_correlate: bool = True,
-    ) -> Tuple[BugReport, bool, Optional[BugIncidentCorrelation], Optional[DataIncident]]:
-        bug, created, corr, incident = self.upsert_issue(
+    ) -> Tuple[BugReport, bool]:
+        bug, created = self.upsert_issue(
             db,
             repo_full_name=repo_full_name,
             issue=issue,
             action=None,
-            auto_correlate=auto_correlate,
         )
 
         labels = dict(bug.labels) if isinstance(bug.labels, dict) else {}
@@ -292,4 +233,4 @@ class GitHubIngestor:
         db.commit()
         db.refresh(bug)
 
-        return bug, created, corr, incident
+        return bug, created

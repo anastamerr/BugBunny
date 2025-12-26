@@ -1,52 +1,56 @@
 import { useQuery } from "@tanstack/react-query";
-import { AlertTriangle, Bug, Clock, Database } from "lucide-react";
+import { Activity, Radar, ScanSearch, ShieldCheck } from "lucide-react";
 import { Link } from "react-router-dom";
 
 import { bugsApi } from "../api/bugs";
-import { incidentsApi } from "../api/incidents";
+import { scansApi } from "../api/scans";
 import { BugQueue } from "../components/dashboard/BugQueue";
-import { CorrelationGraph } from "../components/dashboard/CorrelationGraph";
-import { IncidentFeed } from "../components/dashboard/IncidentFeed";
 import { StatsCard } from "../components/dashboard/StatsCard";
-import { PredictionAlert } from "../components/predictions/PredictionAlert";
+
+function formatRepoName(url: string) {
+  try {
+    const parsed = new URL(url);
+    const parts = parsed.pathname.split("/").filter(Boolean);
+    if (parts.length >= 2) {
+      return `${parts[parts.length - 2]}/${parts[parts.length - 1]}`;
+    }
+  } catch {
+    return url;
+  }
+  return url;
+}
+
+function formatReduction(total: number, filtered: number) {
+  if (!total) return "0%";
+  const ratio = 1 - filtered / total;
+  return `${Math.round(Math.max(0, Math.min(1, ratio)) * 100)}%`;
+}
 
 export default function Dashboard() {
-  const { data: incidents } = useQuery({
-    queryKey: ["incidents"],
-    queryFn: () => incidentsApi.getAll(),
-  });
   const { data: bugs } = useQuery({
     queryKey: ["bugs"],
     queryFn: () => bugsApi.getAll(),
   });
+  const { data: scans } = useQuery({
+    queryKey: ["scans"],
+    queryFn: () => scansApi.list(),
+  });
 
-  const activeIncidents =
-    incidents?.filter((incident) => incident.status === "ACTIVE").length || 0;
-  const unresolvedBugs =
-    bugs?.filter((bug) => bug.status !== "resolved").length || 0;
-  const dataRelatedBugs = bugs?.filter((bug) => bug.is_data_related).length || 0;
-  const correlationRate = bugs?.length ? (dataRelatedBugs / bugs.length) * 100 : 0;
+  const bugList = bugs ?? [];
+  const newBugs = bugList.filter((bug) => bug.status === "new");
 
-  const avgMinutesToImpact = (() => {
-    if (!incidents?.length || !bugs?.length) return null;
-    const byIncident = new Map(incidents.map((incident) => [incident.id, incident]));
-    const deltas = bugs
-      .filter((bug) => bug.correlated_incident_id)
-      .map((bug) => {
-        const incident = byIncident.get(bug.correlated_incident_id as string);
-        if (!incident) return null;
-        const ms =
-          new Date(bug.created_at).getTime() -
-          new Date(incident.timestamp).getTime();
-        if (!Number.isFinite(ms) || ms < 0) return null;
-        return ms / 60000;
-      })
-      .filter((value): value is number => typeof value === "number");
-
-    if (!deltas.length) return null;
-    const avg = deltas.reduce((a, b) => a + b, 0) / deltas.length;
-    return Math.round(avg);
-  })();
+  const scanList = scans ?? [];
+  const activeScans = scanList.filter((scan) =>
+    ["pending", "cloning", "scanning", "analyzing"].includes(scan.status),
+  );
+  const totalFindings = scanList.reduce(
+    (acc, scan) => acc + (scan.total_findings || 0),
+    0,
+  );
+  const filteredFindings = scanList.reduce(
+    (acc, scan) => acc + (scan.filtered_findings || 0),
+    0,
+  );
 
   return (
     <div className="space-y-6">
@@ -59,23 +63,22 @@ export default function Dashboard() {
         <div className="relative flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
           <div className="min-w-0">
             <div className="inline-flex items-center gap-2 rounded-pill border border-neon-mint/40 bg-neon-mint/10 px-3 py-1 text-xs font-semibold tracking-[0.2em] text-neon-mint">
-              LIVE CONSOLE
+              SCANGUARD OPS
             </div>
             <h1 className="mt-3 text-3xl font-extrabold tracking-tight text-white">
               Dashboard
             </h1>
             <p className="mt-2 max-w-2xl text-sm text-white/60">
-              Monitor data incidents, correlate downstream bugs, and ship faster
-              with predictive intelligence.
+              Context-aware static analysis that cuts noise and surfaces real risk.
             </p>
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            <Link to="/incidents" className="btn-ghost">
-              View Incidents
+            <Link to="/scans" className="btn-primary">
+              Run a Scan
             </Link>
-            <Link to="/chat" className="btn-primary">
-              Ask DataBug
+            <Link to="/bugs" className="btn-ghost">
+              View Bugs
             </Link>
           </div>
         </div>
@@ -83,41 +86,65 @@ export default function Dashboard() {
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
         <StatsCard
-          title="Active Incidents"
-          value={activeIncidents}
-          icon={<AlertTriangle className="h-4 w-4 text-neon-mint" />}
+          title="Total Scans"
+          value={scanList.length}
+          icon={<Radar className="h-4 w-4 text-neon-mint" />}
         />
         <StatsCard
-          title="Bug Queue"
-          value={unresolvedBugs}
-          icon={<Bug className="h-4 w-4 text-neon-mint" />}
+          title="Active Scans"
+          value={activeScans.length}
+          icon={<Activity className="h-4 w-4 text-neon-mint" />}
         />
         <StatsCard
-          title="Data-Related Bugs"
-          value={`${correlationRate.toFixed(0)}%`}
-          subtitle={`${dataRelatedBugs} of ${bugs?.length || 0}`}
-          icon={<Database className="h-4 w-4 text-neon-mint" />}
+          title="Total Findings"
+          value={totalFindings}
+          subtitle="raw results"
+          icon={<ScanSearch className="h-4 w-4 text-neon-mint" />}
         />
         <StatsCard
-          title="Avg Time to Root Cause"
-          value={avgMinutesToImpact !== null ? `${avgMinutesToImpact} min` : "—"}
-          subtitle={
-            avgMinutesToImpact !== null
-              ? "Avg time from incident to bug"
-              : "Need correlated history"
-          }
-          icon={<Clock className="h-4 w-4 text-neon-mint" />}
+          title="Noise Reduction"
+          value={formatReduction(totalFindings, filteredFindings)}
+          subtitle={`${filteredFindings} real issues`}
+          icon={<ShieldCheck className="h-4 w-4 text-neon-mint" />}
         />
       </div>
 
-      <PredictionAlert />
-
       <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
-        <div className="space-y-6">
-          <IncidentFeed incidents={incidents?.slice(0, 5) || []} />
-          <BugQueue bugs={bugs?.filter((bug) => bug.status === "new").slice(0, 5) || []} />
+        <div className="surface-solid p-5">
+          <div className="flex items-center justify-between">
+            <div className="text-sm font-semibold tracking-tight text-white">
+              Recent Scans
+            </div>
+            <Link to="/scans" className="text-xs text-neon-mint">
+              View all
+            </Link>
+          </div>
+          <div className="mt-4 space-y-3 text-sm">
+            {scanList.slice(0, 5).map((scan) => (
+              <div
+                key={scan.id}
+                className="flex items-center justify-between gap-4 rounded-card border border-white/10 bg-surface px-4 py-3"
+              >
+                <div className="min-w-0">
+                  <div className="truncate font-semibold text-white">
+                    {formatRepoName(scan.repo_url)}
+                  </div>
+                  <div className="mt-1 text-xs text-white/60">
+                    {scan.branch} • {scan.status}
+                  </div>
+                </div>
+                <Link to={`/scans/${scan.id}`} className="btn-ghost">
+                  View
+                </Link>
+              </div>
+            ))}
+            {scanList.length === 0 ? (
+              <div className="text-sm text-white/60">No scans yet.</div>
+            ) : null}
+          </div>
         </div>
-        <CorrelationGraph />
+
+        <BugQueue title="New Bugs" emptyLabel="No new bugs." bugs={newBugs.slice(0, 5)} />
       </div>
     </div>
   );
