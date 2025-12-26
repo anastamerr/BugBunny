@@ -58,6 +58,26 @@ body {
   }
 
   .input {
-    @apply bg-void border-2 border-white/10 text-white rounded-pill focus:border-neon-mint focus:outline-none placeholder-white/30 px-3 py-2;
+    @apply bg-void border-2 border-white/10 text-white rounded-pill focus:border-neon-mint focus:outline-none placeholder-white/30 px-4 py-2.5 text-sm transition-all duration-200 ease-fluid hover:border-white/20 focus:ring-2 focus:ring-neon-mint/20 focus:shadow-[0_0_20px_rgba(0,215,104,0.15)];
+  }
+
+  .input-textarea {
+    @apply bg-void border-2 border-white/10 text-white rounded-card focus:border-neon-mint focus:outline-none placeholder-white/30 px-4 py-3 text-sm transition-all duration-200 ease-fluid hover:border-white/20 focus:ring-2 focus:ring-neon-mint/20 focus:shadow-[0_0_20px_rgba(0,215,104,0.15)] resize-y;
+  }
+
+  .input-group {
+    @apply relative;
+  }
+
+  .input-icon {
+    @apply absolute left-4 top-1/2 -translate-y-1/2 text-white/40 pointer-events-none transition-colors duration-200;
+  }
+
+  .input-group:focus-within .input-icon {
+    @apply text-neon-mint;
+  }
+
+  .input-with-icon {
+    @apply pl-11;
   }
 }
