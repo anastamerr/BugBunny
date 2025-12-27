@@ -115,6 +115,20 @@ class FindingAggregator:
         if getattr(finding, "confirmed_exploitable", False):
             score += 15
 
+        # Reachability analysis impact
+        reachability_score = getattr(finding, "reachability_score", 1.0)
+        is_reachable = getattr(finding, "is_reachable", True)
+
+        if not is_reachable:
+            # Unreachable code gets significant penalty (likely dead code)
+            score -= 30
+        elif reachability_score < 0.5:
+            # Low reachability confidence gets moderate penalty
+            score -= 15
+        elif reachability_score >= 1.0 and getattr(finding, "entry_points", None):
+            # Confirmed reachable from entry points gets small boost
+            score += 5
+
         return max(0, min(100, int(round(score))))
 
     def _calculate_priority(self, finding: TriagedFinding) -> int:

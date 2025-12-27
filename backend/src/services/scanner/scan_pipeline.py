@@ -200,6 +200,11 @@ async def run_scan_pipeline(
                     cve_ids=item.dast_cve_ids,
                     cwe_ids=item.dast_cwe_ids,
                     confirmed_exploitable=item.confirmed_exploitable,
+                    is_reachable=getattr(item, "is_reachable", True),
+                    reachability_score=getattr(item, "reachability_score", 1.0),
+                    reachability_reason=getattr(item, "reachability_reason", None),
+                    entry_points=getattr(item, "entry_points", None),
+                    call_path=getattr(item, "call_path", None),
                     status="new",
                     priority_score=priority_score,
                 )

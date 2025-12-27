@@ -54,6 +54,16 @@ class AITriageEngine:
         if not exploitability:
             exploitability = "Not enough context to determine exploitability."
 
+        # Include reachability information in reasoning if unreachable
+        is_reachable = getattr(context, "is_reachable", True)
+        reachability_score = getattr(context, "reachability_score", 1.0)
+        reachability_reason = getattr(context, "reachability_reason", "")
+        entry_points = getattr(context, "entry_points", None)
+        call_path = getattr(context, "call_path", None)
+
+        if not is_reachable and reachability_reason:
+            ai_reasoning = ai_reasoning + f"\n[Reachability: {reachability_reason}]"
+
         return TriagedFinding(
             rule_id=finding.rule_id,
             rule_message=finding.rule_message,
@@ -73,6 +83,11 @@ class AITriageEngine:
             ai_confidence=ai_confidence,
             ai_reasoning=ai_reasoning,
             exploitability=exploitability,
+            is_reachable=is_reachable,
+            reachability_score=reachability_score,
+            reachability_reason=reachability_reason,
+            entry_points=entry_points,
+            call_path=call_path,
         )
 
     async def triage_batch(
@@ -92,7 +107,15 @@ class AITriageEngine:
                 return ""
 
     def _system_prompt(self) -> str:
-        return "You are a security expert reviewing static analysis findings."
+        return (
+            "You are ScanGuard AI, a senior security engineer and the final judge of findings.\n"
+            "Semgrep output is advisory and noisy; you are trusted to dismiss false positives.\n"
+            "Mark is_false_positive=true when context shows the issue is not exploitable, "
+            "unreachable, test-only, generated, or otherwise safe.\n"
+            "If uncertain, say so in reasoning and choose the lowest realistic severity "
+            "with an appropriate confidence.\n"
+            "Return only valid JSON."
+        )
 
     def _build_prompt(
         self, finding: RawFinding, context: CodeContext, language: str
@@ -101,6 +124,22 @@ class AITriageEngine:
         imports = ", ".join(context.imports[:10]) if context.imports else "none"
         function_name = context.function_name or "unknown"
         class_name = context.class_name or "none"
+
+        # Reachability context
+        is_reachable = getattr(context, "is_reachable", True)
+        reachability_score = getattr(context, "reachability_score", 1.0)
+        reachability_reason = getattr(context, "reachability_reason", "")
+        entry_points = getattr(context, "entry_points", None)
+
+        reachability_info = ""
+        if not is_reachable:
+            reachability_info = f"- Reachability: NOT REACHABLE (score: {reachability_score:.1f}) - {reachability_reason}\n"
+        elif entry_points:
+            entry_point_str = ", ".join(entry_points[:3])
+            reachability_info = f"- Reachability: Reachable from {len(entry_points)} entry point(s): {entry_point_str}\n"
+        else:
+            reachability_info = f"- Reachability: Unknown (score: {reachability_score:.1f})\n"
+
         return (
             "## Finding\n"
             f"- Rule: {finding.rule_id}\n"
@@ -112,6 +151,7 @@ class AITriageEngine:
             f"- Class: {class_name}\n"
             f"- Test file: {context.is_test_file}\n"
             f"- Generated: {context.is_generated}\n"
+            f"{reachability_info}"
             f"- Imports: {imports}\n\n"
             "## Code Context\n"
             f"```{language}\n"
@@ -128,6 +168,7 @@ class AITriageEngine:
             "}\n\n"
             "Return only valid JSON (no markdown or extra text).\n"
             "Use concrete details from the snippet (variables, functions, data flow).\n"
+            "You are the judge; Semgrep severity is not authoritative.\n"
             "Consider:\n"
             "- Is the vulnerable code actually reachable?\n"
             "- Is there input validation elsewhere?\n"

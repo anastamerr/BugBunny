@@ -23,6 +23,11 @@ class CodeContext:
     is_test_file: bool
     is_generated: bool
     imports: List[str]
+    is_reachable: bool = True
+    reachability_score: float = 1.0
+    reachability_reason: str = ""
+    entry_points: Optional[List[str]] = None
+    call_path: Optional[List[str]] = None
 
 
 @dataclass
@@ -47,6 +52,11 @@ class TriagedFinding:
     exploitability: str
     priority_score: Optional[int] = None
     confirmed_exploitable: bool = False
+    is_reachable: bool = True
+    reachability_score: float = 1.0
+    reachability_reason: str = ""
+    entry_points: Optional[List[str]] = None
+    call_path: Optional[List[str]] = None
     dast_matched_at: Optional[str] = None
     dast_endpoint: Optional[str] = None
     dast_curl_command: Optional[str] = None

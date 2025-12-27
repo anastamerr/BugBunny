@@ -69,6 +69,13 @@ class Finding(Base):
     cwe_ids = Column(JSON, nullable=True)
     confirmed_exploitable = Column(Boolean, nullable=False, default=False)
 
+    # Reachability analysis fields
+    is_reachable = Column(Boolean, nullable=False, default=True)
+    reachability_score = Column(Float, nullable=True, default=1.0)
+    reachability_reason = Column(Text, nullable=True)
+    entry_points = Column(JSON, nullable=True)
+    call_path = Column(JSON, nullable=True)
+
     status = Column(
         Enum("new", "confirmed", "dismissed", name="finding_status"),
         nullable=False,

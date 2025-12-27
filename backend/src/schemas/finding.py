@@ -65,6 +65,13 @@ class FindingBase(BaseModel):
     cwe_ids: Optional[List[str]] = None
     confirmed_exploitable: bool = False
 
+    # Reachability analysis fields
+    is_reachable: bool = True
+    reachability_score: Optional[float] = 1.0
+    reachability_reason: Optional[str] = None
+    entry_points: Optional[List[str]] = None
+    call_path: Optional[List[str]] = None
+
     status: FindingStatus = FindingStatus.new
     priority_score: Optional[int] = None
 

@@ -1,13 +1,32 @@
 from __future__ import annotations
 
+import logging
 import re
 from pathlib import Path
 from typing import List, Optional
 
+from .reachability_analyzer import ReachabilityAnalyzer
 from .types import CodeContext, RawFinding
+
+logger = logging.getLogger(__name__)
 
 
 class ContextExtractor:
+    def __init__(self, enable_reachability: bool = True) -> None:
+        self.enable_reachability = enable_reachability
+        self._reachability_analyzer: Optional[ReachabilityAnalyzer] = None
+        self._current_repo_path: Optional[Path] = None
+
+    def _get_reachability_analyzer(self, repo_path: Path) -> ReachabilityAnalyzer:
+        """Get or create reachability analyzer for the current repo."""
+        if (
+            self._reachability_analyzer is None
+            or self._current_repo_path != repo_path
+        ):
+            self._reachability_analyzer = ReachabilityAnalyzer()
+            self._current_repo_path = repo_path
+        return self._reachability_analyzer
+
     def extract(
         self,
         repo_path: Path,
@@ -40,6 +59,39 @@ class ContextExtractor:
         is_generated = self._is_generated_file(lines)
         imports = self._extract_imports(lines)
 
+        # Reachability analysis
+        is_reachable = True
+        reachability_score = 1.0
+        reachability_reason = ""
+        entry_points: Optional[List[str]] = None
+        call_path: Optional[List[str]] = None
+
+        if self.enable_reachability and not is_test_file:
+            try:
+                analyzer = self._get_reachability_analyzer(repo_path)
+                result = analyzer.analyze(
+                    repo_path=repo_path,
+                    file_path=finding.file_path,
+                    function_name=function_name,
+                    class_name=class_name,
+                    line_number=finding.line_start,
+                )
+                is_reachable = result.is_reachable
+                reachability_score = result.reachability_score
+                reachability_reason = result.reason
+                entry_points = result.entry_points if result.entry_points else None
+                call_path = result.call_path if result.call_path else None
+
+                if not is_reachable:
+                    logger.debug(
+                        "Unreachable code detected: %s:%s - %s",
+                        finding.file_path,
+                        finding.line_start,
+                        reachability_reason,
+                    )
+            except Exception as e:
+                logger.warning("Reachability analysis failed: %s", str(e))
+
         return CodeContext(
             snippet=snippet,
             function_name=function_name,
@@ -47,6 +99,11 @@ class ContextExtractor:
             is_test_file=is_test_file,
             is_generated=is_generated,
             imports=imports,
+            is_reachable=is_reachable,
+            reachability_score=reachability_score,
+            reachability_reason=reachability_reason,
+            entry_points=entry_points,
+            call_path=call_path,
         )
 
     def _get_function_scope(self, lines: List[str], target_line: int) -> Optional[str]:
