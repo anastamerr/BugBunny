@@ -56,6 +56,8 @@ export default function ScanDetail() {
   const [includeFalsePositives, setIncludeFalsePositives] = useState(false);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
   const [updateError, setUpdateError] = useState<string | null>(null);
+  const [isDownloadingReport, setIsDownloadingReport] = useState(false);
+  const [reportError, setReportError] = useState<string | null>(null);
 
   const {
     data: scan,
@@ -110,6 +112,29 @@ export default function ScanDetail() {
       await queryClient.invalidateQueries({ queryKey: ["findings"] });
     },
   });
+
+  const handleDownloadReport = async () => {
+    if (!scan) return;
+    setIsDownloadingReport(true);
+    setReportError(null);
+    try {
+      const blob = await scansApi.downloadReport(scan.id);
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `scan-report-${scan.id}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      setReportError(
+        err instanceof Error ? err.message : "Failed to generate PDF report."
+      );
+    } finally {
+      setIsDownloadingReport(false);
+    }
+  };
 
   const stats = useMemo(() => {
     const total = scan?.total_findings ?? 0;
@@ -340,6 +365,14 @@ export default function ScanDetail() {
             <Link to={`/chat?scan_id=${scan.id}`} className="btn-primary">
               Ask AI
             </Link>
+            <button
+              type="button"
+              className="btn-ghost"
+              onClick={handleDownloadReport}
+              disabled={scan.status !== "completed" || isDownloadingReport}
+            >
+              {isDownloadingReport ? "Generating PDF..." : "PDF Report"}
+            </button>
             {scan.pr_url ? (
               <a
                 href={scan.pr_url}
@@ -486,6 +519,12 @@ export default function ScanDetail() {
           </label>
         </div>
       </div>
+
+      {reportError ? (
+        <div className="surface-solid p-4 text-sm text-rose-200">
+          {reportError}
+        </div>
+      ) : null}
 
       {updateError ? (
         <div className="surface-solid p-4 text-sm text-rose-200">

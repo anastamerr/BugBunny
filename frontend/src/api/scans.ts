@@ -47,6 +47,13 @@ export const scansApi = {
     return data;
   },
 
+  downloadReport: async (scanId: string) => {
+    const { data } = await api.get<Blob>(`/api/scans/${scanId}/report`, {
+      responseType: "blob",
+    });
+    return data;
+  },
+
   listFindings: async (params?: {
     scan_id?: string;
     status?: string;

@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime, timedelta, timezone
+from io import BytesIO
 from typing import List, Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
+from fastapi.responses import StreamingResponse
 from sqlalchemy import case, desc
 from sqlalchemy.orm import Session
 
@@ -14,6 +16,7 @@ from ...models import Finding, Repository, Scan
 from ...realtime import sio
 from ...schemas.finding import FindingRead, FindingUpdate
 from ...schemas.scan import ScanCreate, ScanRead
+from ...services.reports import build_scan_report_pdf
 from ...services.scanner import run_scan_pipeline
 
 router = APIRouter(prefix="/scans", tags=["scans"])
@@ -154,6 +157,39 @@ def get_scan(
     if not scan:
         raise HTTPException(status_code=404, detail="Scan not found")
     return scan
+
+
+@router.get("/{scan_id}/report")
+def get_scan_report(
+    scan_id: str,
+    current_user: CurrentUser = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> StreamingResponse:
+    scan = get_scan(scan_id, current_user=current_user, db=db)
+    findings = (
+        db.query(Finding)
+        .filter(
+            Finding.scan_id == scan.id,
+            Finding.is_false_positive.is_(False),
+        )
+        .order_by(desc(Finding.priority_score), Finding.created_at.desc())
+        .all()
+    )
+    trend_scans = (
+        db.query(Scan)
+        .filter(Scan.user_id == current_user.id, Scan.status == "completed")
+        .order_by(Scan.created_at.desc())
+        .limit(12)
+        .all()
+    )
+    pdf_bytes = build_scan_report_pdf(scan, findings, trend_scans)
+    filename = f"scan-report-{scan.id}.pdf"
+    headers = {"Content-Disposition": f'attachment; filename="{filename}"'}
+    return StreamingResponse(
+        BytesIO(pdf_bytes),
+        media_type="application/pdf",
+        headers=headers,
+    )
 
 
 @router.get("/{scan_id}/findings", response_model=List[FindingRead])
