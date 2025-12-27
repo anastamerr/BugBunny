@@ -38,7 +38,9 @@ def test_github_push_webhook_triggers_scan(db_sessionmaker, monkeypatch):
 
     from src.api.routes import webhooks as webhooks_routes
 
-    async def fake_run_scan_pipeline(scan_id, repo_url, branch):  # noqa: ANN001
+    async def fake_run_scan_pipeline(  # noqa: ANN001
+        scan_id, repo_url, branch, scan_type="sast", target_url=None
+    ):
         return None
 
     monkeypatch.setattr(webhooks_routes, "run_scan_pipeline", fake_run_scan_pipeline)
@@ -108,7 +110,9 @@ def test_github_pull_request_webhook_triggers_scan(db_sessionmaker, monkeypatch)
 
     from src.api.routes import webhooks as webhooks_routes
 
-    async def fake_run_scan_pipeline(scan_id, repo_url, branch):  # noqa: ANN001
+    async def fake_run_scan_pipeline(  # noqa: ANN001
+        scan_id, repo_url, branch, scan_type="sast", target_url=None
+    ):
         return None
 
     monkeypatch.setattr(webhooks_routes, "run_scan_pipeline", fake_run_scan_pipeline)

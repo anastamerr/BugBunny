@@ -1,6 +1,7 @@
 import { NavLink, Outlet } from "react-router-dom";
 
 import { RealtimeListener } from "../realtime/RealtimeListener";
+import { RealtimeStatus } from "../realtime/RealtimeStatus";
 import { useAuth } from "../../hooks/useAuth";
 
 const navItems = [
@@ -88,8 +89,8 @@ export function Layout() {
             </button>
           </div>
 
-          <div className="mt-5 rounded-card border border-white/10 bg-void p-3 text-xs text-white/70">
-            Real-time updates via <span className="font-mono text-white/80">/ws</span>
+          <div className="mt-5">
+            <RealtimeStatus />
           </div>
         </aside>
 

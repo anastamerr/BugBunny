@@ -34,6 +34,11 @@ function formatConfidence(value?: number | null) {
   return `${Math.round(value * 100)}%`;
 }
 
+function formatList(values?: string[] | null, emptyLabel = "none") {
+  if (!values || values.length === 0) return emptyLabel;
+  return values.filter(Boolean).join(", ");
+}
+
 export function FindingCard({
   finding,
   onUpdateStatus,
@@ -41,9 +46,31 @@ export function FindingCard({
 }: FindingCardProps) {
   const [isExpanded, setIsExpanded] = useState(false);
 
+  const findingType = finding.finding_type || "sast";
+  const isDast = findingType === "dast";
   const aiSeverity = (finding.ai_severity || "info").toLowerCase();
   const aiBadgeClass = severityStyles[aiSeverity] || "badge";
   const semgrepBadgeClass = semgrepStyles[finding.semgrep_severity] || "badge";
+  const evidenceItems = useMemo(
+    () => (finding.evidence || []).filter(Boolean),
+    [finding.evidence],
+  );
+  const cveList = formatList(finding.cve_ids);
+  const cweList = formatList(finding.cwe_ids);
+  const hasDastEvidence =
+    Boolean(finding.matched_at || finding.endpoint || finding.curl_command) ||
+    evidenceItems.length > 0;
+  const primaryMessage = isDast
+    ? finding.description || finding.rule_message
+    : finding.rule_message;
+  const locationLabel = isDast
+    ? displayText(
+        finding.matched_at || finding.endpoint || finding.file_path,
+        "n/a",
+      )
+    : `${finding.file_path}:${finding.line_start}${
+        finding.line_end !== finding.line_start ? `-${finding.line_end}` : ""
+      }`;
 
   const meta = useMemo(() => {
     const parts: string[] = [];
@@ -70,11 +97,23 @@ export function FindingCard({
         <div className="min-w-0 space-y-2">
           <div className="flex flex-wrap items-center gap-2">
             <span className="badge font-mono text-white/80">{finding.rule_id}</span>
-            <span className={aiBadgeClass}>AI {aiSeverity}</span>
-            <span className={semgrepBadgeClass}>
-              Semgrep {finding.semgrep_severity}
-            </span>
+            <span className="badge">{isDast ? "DAST" : "SAST"}</span>
+            {isDast ? (
+              <span className={aiBadgeClass}>DAST {aiSeverity}</span>
+            ) : (
+              <>
+                <span className={aiBadgeClass}>AI {aiSeverity}</span>
+                <span className={semgrepBadgeClass}>
+                  Semgrep {finding.semgrep_severity}
+                </span>
+              </>
+            )}
             <span className={statusBadge}>{finding.status}</span>
+            {finding.confirmed_exploitable ? (
+              <span className="badge border-neon-mint/40 bg-neon-mint/10 text-neon-mint">
+                confirmed exploitable
+              </span>
+            ) : null}
             {finding.is_false_positive ? (
               <span className="badge border-white/20 bg-white/10 text-white/60">
                 false positive
@@ -88,16 +127,11 @@ export function FindingCard({
           </div>
 
           <div className="text-sm font-semibold text-white">
-            {displayText(finding.rule_message, "No rule message provided.")}
+            {displayText(primaryMessage, "No rule message provided.")}
           </div>
 
           <div className="flex flex-wrap items-center gap-2 text-xs text-white/60">
-            <span className="font-mono">
-              {finding.file_path}:{finding.line_start}
-              {finding.line_end !== finding.line_start
-                ? `-${finding.line_end}`
-                : ""}
-            </span>
+            <span className="font-mono">{locationLabel}</span>
             {meta.map((item) => (
               <span key={item} className="badge">
                 {item}
@@ -142,34 +176,178 @@ export function FindingCard({
 
       {isExpanded ? (
         <div className="mt-4 border-t border-white/10 pt-4">
-          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-            <div>
-              <div className="text-xs font-semibold uppercase tracking-[0.2em] text-white/60">
-                AI Reasoning
+          {isDast ? (
+            <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+              <div>
+                <div className="text-xs font-semibold uppercase tracking-[0.2em] text-white/60">
+                  DAST Summary
+                </div>
+                <p className="mt-2 text-sm text-white/80">
+                  {displayText(
+                    finding.description || finding.rule_message,
+                    "No description provided.",
+                  )}
+                </p>
+                <div className="mt-4 text-xs font-semibold uppercase tracking-[0.2em] text-white/60">
+                  Remediation
+                </div>
+                <p className="mt-2 text-sm text-white/80">
+                  {displayText(finding.remediation, "No remediation guidance.")}
+                </p>
+                <div className="mt-4 space-y-2 text-sm text-white/80">
+                  <div>
+                    <span className="text-white/60">Endpoint: </span>
+                    {displayText(finding.endpoint, "n/a")}
+                  </div>
+                  <div>
+                    <span className="text-white/60">Matched at: </span>
+                    {displayText(finding.matched_at, "n/a")}
+                  </div>
+                  <div>
+                    <span className="text-white/60">CVE: </span>
+                    {cveList}
+                  </div>
+                  <div>
+                    <span className="text-white/60">CWE: </span>
+                    {cweList}
+                  </div>
+                </div>
+                <div className="mt-4 text-xs font-semibold uppercase tracking-[0.2em] text-white/60">
+                  Analysis
+                </div>
+                <p className="mt-2 text-sm text-white/80">
+                  {displayText(finding.ai_reasoning, "No analysis provided.")}
+                </p>
               </div>
-              <p className="mt-2 text-sm text-white/80">
-                {displayText(finding.ai_reasoning, "No AI reasoning provided.")}
-              </p>
-              <div className="mt-4 text-xs font-semibold uppercase tracking-[0.2em] text-white/60">
-                Exploitability
-              </div>
-              <p className="mt-2 text-sm text-white/80">
-                {displayText(finding.exploitability, "No exploitability notes.")}
-              </p>
-            </div>
 
-            <div>
-              <div className="text-xs font-semibold uppercase tracking-[0.2em] text-white/60">
-                Code Context
-              </div>
-              <pre className="mt-2 max-h-72 overflow-auto rounded-card border border-white/10 bg-void p-3 text-xs text-white/80">
-                {displayText(
-                  finding.context_snippet || finding.code_snippet,
-                  "No code snippet available.",
+              <div>
+                <div className="text-xs font-semibold uppercase tracking-[0.2em] text-white/60">
+                  Reproduction
+                </div>
+                <pre className="mt-2 max-h-48 overflow-auto rounded-card border border-white/10 bg-void p-3 text-xs text-white/80">
+                  {displayText(
+                    finding.curl_command,
+                    "No curl command provided.",
+                  )}
+                </pre>
+                <div className="mt-4 text-xs font-semibold uppercase tracking-[0.2em] text-white/60">
+                  Evidence
+                </div>
+                {evidenceItems.length ? (
+                  <ul className="mt-2 list-disc space-y-1 pl-4 text-xs text-white/80">
+                    {evidenceItems.map((item, index) => (
+                      <li key={`${finding.id}-evidence-${index}`}>{item}</li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="mt-2 text-sm text-white/70">
+                    No evidence captured.
+                  </p>
                 )}
-              </pre>
+              </div>
             </div>
-          </div>
+          ) : (
+            <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+              <div>
+                <div className="text-xs font-semibold uppercase tracking-[0.2em] text-white/60">
+                  AI Reasoning
+                </div>
+                <p className="mt-2 text-sm text-white/80">
+                  {displayText(
+                    finding.ai_reasoning,
+                    "No AI reasoning provided.",
+                  )}
+                </p>
+                <div className="mt-4 text-xs font-semibold uppercase tracking-[0.2em] text-white/60">
+                  Exploitability
+                </div>
+                <p className="mt-2 text-sm text-white/80">
+                  {displayText(
+                    finding.exploitability,
+                    "No exploitability notes.",
+                  )}
+                </p>
+                {finding.description ? (
+                  <>
+                    <div className="mt-4 text-xs font-semibold uppercase tracking-[0.2em] text-white/60">
+                      Details
+                    </div>
+                    <p className="mt-2 text-sm text-white/80">
+                      {displayText(finding.description, "No details provided.")}
+                    </p>
+                  </>
+                ) : null}
+                {finding.remediation ? (
+                  <>
+                    <div className="mt-4 text-xs font-semibold uppercase tracking-[0.2em] text-white/60">
+                      Remediation
+                    </div>
+                    <p className="mt-2 text-sm text-white/80">
+                      {displayText(
+                        finding.remediation,
+                        "No remediation guidance.",
+                      )}
+                    </p>
+                  </>
+                ) : null}
+                {hasDastEvidence ? (
+                  <div className="mt-4">
+                    <div className="text-xs font-semibold uppercase tracking-[0.2em] text-white/60">
+                      DAST Evidence
+                    </div>
+                    <div className="mt-2 space-y-2 text-sm text-white/80">
+                      {finding.endpoint ? (
+                        <div>
+                          <span className="text-white/60">Endpoint: </span>
+                          {finding.endpoint}
+                        </div>
+                      ) : null}
+                      {finding.matched_at ? (
+                        <div>
+                          <span className="text-white/60">Matched at: </span>
+                          {finding.matched_at}
+                        </div>
+                      ) : null}
+                      {(finding.cve_ids?.length ?? 0) > 0 ||
+                      (finding.cwe_ids?.length ?? 0) > 0 ? (
+                        <div>
+                          <span className="text-white/60">CVE: </span>
+                          {cveList} | <span className="text-white/60">CWE: </span>
+                          {cweList}
+                        </div>
+                      ) : null}
+                      {finding.curl_command ? (
+                        <pre className="max-h-40 overflow-auto rounded-card border border-white/10 bg-void p-3 text-xs text-white/80">
+                          {finding.curl_command}
+                        </pre>
+                      ) : null}
+                      {evidenceItems.length ? (
+                        <ul className="list-disc space-y-1 pl-4 text-xs text-white/80">
+                          {evidenceItems.map((item, index) => (
+                            <li key={`${finding.id}-evidence-${index}`}>
+                              {item}
+                            </li>
+                          ))}
+                        </ul>
+                      ) : null}
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+
+              <div>
+                <div className="text-xs font-semibold uppercase tracking-[0.2em] text-white/60">
+                  Code Context
+                </div>
+                <pre className="mt-2 max-h-72 overflow-auto rounded-card border border-white/10 bg-void p-3 text-xs text-white/80">
+                  {displayText(
+                    finding.context_snippet || finding.code_snippet,
+                    "No code snippet available.",
+                  )}
+                </pre>
+              </div>
+            </div>
+          )}
         </div>
       ) : null}
     </div>

@@ -24,12 +24,15 @@ export interface BugReport {
 export interface Scan {
   id: string;
   repo_id?: string | null;
-  repo_url: string;
+  repo_url?: string | null;
   branch: string;
+  scan_type: "sast" | "dast" | "both";
+  target_url?: string | null;
   status: "pending" | "cloning" | "scanning" | "analyzing" | "completed" | "failed";
   trigger: "manual" | "webhook";
   total_findings: number;
   filtered_findings: number;
+  dast_findings: number;
   error_message?: string | null;
   pr_number?: number | null;
   pr_url?: string | null;
@@ -52,12 +55,20 @@ export interface Repository {
   updated_at: string;
 }
 
+export interface DemoInjectScanResponse {
+  scan: Scan;
+  findings_created: number;
+  real_findings: number;
+  false_positives: number;
+}
+
 export interface Finding {
   id: string;
   scan_id: string;
   rule_id: string;
   rule_message?: string | null;
   semgrep_severity: "ERROR" | "WARNING" | "INFO";
+  finding_type?: "sast" | "dast";
   ai_severity?: "critical" | "high" | "medium" | "low" | "info" | null;
   is_false_positive: boolean;
   ai_reasoning?: string | null;
@@ -73,6 +84,15 @@ export interface Finding {
   is_test_file: boolean;
   is_generated: boolean;
   imports?: string[] | null;
+  matched_at?: string | null;
+  endpoint?: string | null;
+  curl_command?: string | null;
+  evidence?: string[] | null;
+  description?: string | null;
+  remediation?: string | null;
+  cve_ids?: string[] | null;
+  cwe_ids?: string[] | null;
+  confirmed_exploitable?: boolean;
   status: "new" | "confirmed" | "dismissed";
   priority_score?: number | null;
   created_at: string;

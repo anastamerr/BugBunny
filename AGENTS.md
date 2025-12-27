@@ -643,11 +643,11 @@ if event_type == "pull_request":
 | Record backup video | In case live demo fails |
 
 **Demo Checklist**:
-- [ ] Pre-scanned repo with impressive stats (87 → 12)
-- [ ] Real-time scan works reliably
-- [ ] AI reasoning is compelling and accurate
-- [ ] Dashboard looks polished
-- [ ] Can explain the "why" (value proposition)
+- [x] Pre-scanned repo with impressive stats (87 → 12)
+- [x] Real-time scan works reliably
+- [x] AI reasoning is compelling and accurate
+- [x] Dashboard looks polished
+- [x] Can explain the "why" (value proposition)
 
 ---
 
@@ -694,9 +694,9 @@ class Scan(Base):
 ```
 
 **Acceptance Criteria**:
-- [ ] Scan model supports scan_type: sast, dast, both
-- [ ] target_url stored for DAST scans
-- [ ] DAST stats tracked separately
+- [x] Scan model supports scan_type: sast, dast, both
+- [x] target_url stored for DAST scans
+- [x] DAST stats tracked separately
 
 ---
 
@@ -818,11 +818,11 @@ class DynamicFinding:
 ```
 
 **Acceptance Criteria**:
-- [ ] DASTRunner executes Nuclei CLI
-- [ ] Parses JSON lines output correctly
-- [ ] Handles timeouts gracefully
-- [ ] Returns structured DynamicFinding objects
-- [ ] Includes curl command for reproduction
+- [x] DASTRunner executes Nuclei CLI
+- [x] Parses JSON lines output correctly
+- [x] Handles timeouts gracefully
+- [x] Returns structured DynamicFinding objects
+- [x] Includes curl command for reproduction
 
 ---
 
@@ -863,9 +863,9 @@ class DependencyScanner:
 ```
 
 **Acceptance Criteria**:
-- [ ] Scans requirements.txt, package.json, go.mod, etc.
-- [ ] Returns CVE IDs with fix versions
-- [ ] Includes CVSS scores for prioritization
+- [x] Scans requirements.txt, package.json, go.mod, etc.
+- [x] Returns CVE IDs with fix versions
+- [x] Includes CVSS scores for prioritization
 
 ---
 
@@ -1015,11 +1015,11 @@ def _findings_match(sast: TriagedFinding, dast: DynamicFinding) -> bool:
 ```
 
 **Acceptance Criteria**:
-- [ ] Pipeline supports scan_type: sast, dast, both
-- [ ] DAST runs against target_url when provided
-- [ ] Findings are correlated between SAST and DAST
-- [ ] Confidence boosted when both find same issue
-- [ ] Socket.IO emits phase updates (SAST → DAST → Correlation)
+- [x] Pipeline supports scan_type: sast, dast, both
+- [x] DAST runs against target_url when provided
+- [x] Findings are correlated between SAST and DAST
+- [x] Confidence boosted when both find same issue
+- [x] Socket.IO emits phase updates (SAST → DAST → Correlation)
 
 ---
 
@@ -1082,11 +1082,11 @@ class ScanCreate(BaseModel):
 ```
 
 **Acceptance Criteria**:
-- [ ] API accepts scan_type parameter
-- [ ] API accepts target_url for DAST
-- [ ] Validation: DAST requires target_url
-- [ ] Validation: SAST requires repo_url
-- [ ] Both can be provided for combined scan
+- [x] API accepts scan_type parameter
+- [x] API accepts target_url for DAST
+- [x] Validation: DAST requires target_url
+- [x] Validation: SAST requires repo_url
+- [x] Both can be provided for combined scan
 
 ---
 
@@ -1187,11 +1187,11 @@ export default function Scans() {
 ```
 
 **Acceptance Criteria**:
-- [ ] UI has SAST / DAST / Both toggle
-- [ ] Repo URL field shown for SAST
-- [ ] Target URL field shown for DAST
-- [ ] Both fields shown when "Both" selected
-- [ ] Findings show "Confirmed Exploitable" badge when SAST + DAST match
+- [x] UI has SAST / DAST / Both toggle
+- [x] Repo URL field shown for SAST
+- [x] Target URL field shown for DAST
+- [x] Both fields shown when "Both" selected
+- [x] Findings show "Confirmed Exploitable" badge when SAST + DAST match
 
 ---
 
@@ -1225,9 +1225,9 @@ volumes:
 ```
 
 **Acceptance Criteria**:
-- [ ] Nuclei available in backend container
-- [ ] Templates auto-updated on startup
-- [ ] Templates shared via volume
+- [x] Nuclei available in backend container
+- [x] Templates auto-updated on startup
+- [x] Templates shared via volume
 
 ---
 

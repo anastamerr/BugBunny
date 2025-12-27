@@ -16,9 +16,14 @@ class RepoFetcher:
         self.git_path = git_path
         self.settings = get_settings()
 
-    async def clone(self, repo_url: str, branch: str = "main") -> tuple[Path, str]:
+    async def clone(
+        self,
+        repo_url: str,
+        branch: str = "main",
+        github_token: str | None = None,
+    ) -> tuple[Path, str]:
         target_dir = Path(tempfile.mkdtemp(prefix="scanguard-"))
-        auth_url = self._apply_github_token(repo_url)
+        auth_url = self._apply_github_token(repo_url, github_token)
         cmd = [
             self.git_path,
             "clone",
@@ -31,7 +36,7 @@ class RepoFetcher:
         ]
 
         try:
-            await asyncio.to_thread(self._run_command, cmd, repo_url)
+            await asyncio.to_thread(self._run_command, cmd, repo_url, github_token)
             return target_dir, branch
         except RuntimeError as exc:
             if branch and self._is_branch_missing_error(str(exc)):
@@ -51,7 +56,9 @@ class RepoFetcher:
                         auth_url,
                         str(target_dir),
                     ]
-                    await asyncio.to_thread(self._run_command, cmd, repo_url)
+                    await asyncio.to_thread(
+                        self._run_command, cmd, repo_url, github_token
+                    )
                     return target_dir, default_branch
             shutil.rmtree(target_dir, ignore_errors=True)
             raise
@@ -92,8 +99,8 @@ class RepoFetcher:
 
         return sorted(languages), file_count
 
-    def _apply_github_token(self, repo_url: str) -> str:
-        token = self.settings.github_token
+    def _apply_github_token(self, repo_url: str, github_token: str | None) -> str:
+        token = github_token or self.settings.github_token
         if not token:
             return repo_url
 
@@ -106,7 +113,9 @@ class RepoFetcher:
         auth_netloc = f"{token}@{parsed.netloc}"
         return parsed._replace(netloc=auth_netloc).geturl()
 
-    def _run_command(self, cmd: List[str], repo_url: str) -> None:
+    def _run_command(
+        self, cmd: List[str], repo_url: str, github_token: str | None
+    ) -> None:
         result = subprocess.run(
             cmd,
             capture_output=True,
@@ -115,7 +124,7 @@ class RepoFetcher:
         )
         if result.returncode != 0:
             message = (result.stderr or result.stdout or "").strip()
-            token = self.settings.github_token or ""
+            token = github_token or self.settings.github_token or ""
             if token:
                 message = message.replace(token, "***")
             detail = message or "Unknown git error"

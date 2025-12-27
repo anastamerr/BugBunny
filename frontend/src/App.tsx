@@ -8,6 +8,7 @@ import BugDetail from "./pages/BugDetail";
 import Chat from "./pages/Chat";
 import Dashboard from "./pages/Dashboard";
 import Login from "./pages/Login";
+import Profile from "./pages/Profile";
 import Register from "./pages/Register";
 import Repositories from "./pages/Repositories";
 import ScanDetail from "./pages/ScanDetail";
@@ -35,6 +36,7 @@ export default function App() {
             <Route path="scans" element={<Scans />} />
             <Route path="scans/:id" element={<ScanDetail />} />
             <Route path="repos" element={<Repositories />} />
+            <Route path="profile" element={<Profile />} />
             <Route path="bugs" element={<Bugs />} />
             <Route path="bugs/:id" element={<BugDetail />} />
             <Route path="chat" element={<Chat />} />

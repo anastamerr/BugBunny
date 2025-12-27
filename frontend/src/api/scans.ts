@@ -2,7 +2,14 @@ import { api } from "./client";
 import type { Finding, Scan } from "../types";
 
 export const scansApi = {
-  create: async (payload: { repo_url?: string; repo_id?: string; branch?: string }) => {
+  create: async (payload: {
+    repo_url?: string;
+    repo_id?: string;
+    branch?: string;
+    scan_type?: "sast" | "dast" | "both";
+    target_url?: string;
+    dast_consent?: boolean;
+  }) => {
     const { data } = await api.post<Scan>("/api/scans", payload);
     return data;
   },

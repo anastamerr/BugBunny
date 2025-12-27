@@ -22,6 +22,11 @@ class AISeverity(str, Enum):
     info = "info"
 
 
+class FindingType(str, Enum):
+    sast = "sast"
+    dast = "dast"
+
+
 class FindingStatus(str, Enum):
     new = "new"
     confirmed = "confirmed"
@@ -33,6 +38,7 @@ class FindingBase(BaseModel):
     rule_id: str
     rule_message: Optional[str] = None
     semgrep_severity: SemgrepSeverity
+    finding_type: FindingType = FindingType.sast
     ai_severity: Optional[AISeverity] = None
     is_false_positive: bool = False
     ai_reasoning: Optional[str] = None
@@ -49,6 +55,22 @@ class FindingBase(BaseModel):
     is_test_file: bool = False
     is_generated: bool = False
     imports: Optional[List[str]] = None
+    matched_at: Optional[str] = None
+    endpoint: Optional[str] = None
+    curl_command: Optional[str] = None
+    evidence: Optional[List[str]] = None
+    description: Optional[str] = None
+    remediation: Optional[str] = None
+    cve_ids: Optional[List[str]] = None
+    cwe_ids: Optional[List[str]] = None
+    confirmed_exploitable: bool = False
+
+    # Reachability analysis fields
+    is_reachable: bool = True
+    reachability_score: Optional[float] = 1.0
+    reachability_reason: Optional[str] = None
+    entry_points: Optional[List[str]] = None
+    call_path: Optional[List[str]] = None
 
     status: FindingStatus = FindingStatus.new
     priority_score: Optional[int] = None

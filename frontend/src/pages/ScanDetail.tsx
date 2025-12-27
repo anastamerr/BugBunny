@@ -66,6 +66,11 @@ export default function ScanDetail() {
     queryKey: ["scans", id],
     queryFn: () => scansApi.getById(id as string),
     enabled: Boolean(id),
+    refetchInterval: (query) =>
+      query.state.data &&
+      ["pending", "cloning", "scanning", "analyzing"].includes(query.state.data.status)
+        ? 8000
+        : false,
   });
 
   const {
@@ -80,6 +85,10 @@ export default function ScanDetail() {
         include_false_positives: includeFalsePositives,
       }),
     enabled: Boolean(id),
+    refetchInterval:
+      scan && ["pending", "cloning", "scanning", "analyzing"].includes(scan.status)
+        ? 8000
+        : false,
   });
 
   const updateFinding = useMutation({
@@ -109,6 +118,9 @@ export default function ScanDetail() {
     const pct = Math.round(Math.max(0, Math.min(1, ratio)) * 100);
     return { total, filtered, pct };
   }, [scan]);
+
+  const isDastEnabled = scan?.scan_type !== "sast";
+  const headline = scan?.repo_url || scan?.target_url || "DAST scan";
 
   const telemetry = useMemo(() => {
     const detectedLanguages = formatList(
@@ -279,7 +291,15 @@ export default function ScanDetail() {
             <div className="flex flex-wrap items-center gap-2">
               <span className={statusClass(scan.status)}>{scan.status}</span>
               <span className="badge">{scan.trigger}</span>
-              <span className="badge">branch {scan.branch}</span>
+              {scan.scan_type !== "dast" ? (
+                <span className="badge">SAST</span>
+              ) : null}
+              {scan.scan_type !== "sast" ? (
+                <span className="badge">DAST</span>
+              ) : null}
+              {scan.scan_type !== "dast" ? (
+                <span className="badge">branch {scan.branch}</span>
+              ) : null}
               <span className="badge">{formatReduction(scan)}</span>
               {scan.pr_number ? (
                 <span className="badge">PR #{scan.pr_number}</span>
@@ -291,8 +311,23 @@ export default function ScanDetail() {
               ) : null}
             </div>
             <h1 className="mt-3 break-all text-2xl font-extrabold tracking-tight text-white">
-              {scan.repo_url}
+              {headline}
             </h1>
+            {scan.repo_url && scan.target_url ? (
+              <div className="mt-2 space-y-1 text-xs text-white/60">
+                {scan.repo_url ? (
+                  <div>
+                    Repo: <span className="text-white/80">{scan.repo_url}</span>
+                  </div>
+                ) : null}
+                {scan.target_url ? (
+                  <div>
+                    Target:{" "}
+                    <span className="text-white/80">{scan.target_url}</span>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
             <p className="mt-1 text-sm text-white/60">
               Started {formatDate(scan.created_at)}
             </p>
@@ -345,7 +380,11 @@ export default function ScanDetail() {
         ) : null}
       </div>
 
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+      <div
+        className={`grid grid-cols-1 gap-4 ${
+          isDastEnabled ? "md:grid-cols-4" : "md:grid-cols-3"
+        }`}
+      >
         <div className="surface-solid p-5">
           <div className="text-xs font-semibold uppercase tracking-[0.2em] text-white/60">
             Total Findings
@@ -370,6 +409,16 @@ export default function ScanDetail() {
             {stats.pct}%
           </div>
         </div>
+        {isDastEnabled ? (
+          <div className="surface-solid p-5">
+            <div className="text-xs font-semibold uppercase tracking-[0.2em] text-white/60">
+              DAST Findings
+            </div>
+            <div className="mt-2 text-2xl font-extrabold text-white">
+              {scan?.dast_findings ?? 0}
+            </div>
+          </div>
+        ) : null}
       </div>
 
       {telemetry.hasTelemetry ? (

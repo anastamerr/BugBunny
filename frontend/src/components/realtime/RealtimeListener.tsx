@@ -18,6 +18,16 @@ export function RealtimeListener() {
       invalidateScans();
       invalidateFindings();
     };
+    const setRealtimeStatus = (
+      state: "connecting" | "connected" | "disconnected" | "error",
+      message?: string,
+    ) => {
+      queryClient.setQueryData(["realtime-status"], {
+        state,
+        message,
+        updatedAt: new Date().toISOString(),
+      });
+    };
 
     socket.on("bug.created", invalidateBugs);
     socket.on("bug.updated", invalidateBugs);
@@ -26,6 +36,19 @@ export function RealtimeListener() {
     socket.on("scan.completed", handleScanCompleted);
     socket.on("scan.failed", invalidateScans);
     socket.on("finding.updated", invalidateFindings);
+    socket.on("connect", () => setRealtimeStatus("connected"));
+    socket.on("disconnect", () => setRealtimeStatus("disconnected"));
+    socket.on("connect_error", (err: Error) =>
+      setRealtimeStatus("error", err?.message),
+    );
+    socket.on("reconnect_attempt", () => setRealtimeStatus("connecting"));
+    socket.on("reconnect_failed", () =>
+      setRealtimeStatus("error", "Reconnection failed"),
+    );
+
+    if (!socket.connected) {
+      setRealtimeStatus("connecting");
+    }
 
     return () => {
       socket.off("bug.created", invalidateBugs);
@@ -35,6 +58,11 @@ export function RealtimeListener() {
       socket.off("scan.completed", handleScanCompleted);
       socket.off("scan.failed", invalidateScans);
       socket.off("finding.updated", invalidateFindings);
+      socket.off("connect");
+      socket.off("disconnect");
+      socket.off("connect_error");
+      socket.off("reconnect_attempt");
+      socket.off("reconnect_failed");
     };
   }, [queryClient, socket]);
 

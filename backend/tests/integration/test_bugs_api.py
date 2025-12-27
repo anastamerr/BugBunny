@@ -3,7 +3,9 @@ from unittest.mock import MagicMock
 
 from fastapi.testclient import TestClient
 
-from src.api.deps import get_db
+import uuid
+
+from src.api.deps import CurrentUser, get_current_user, get_db
 from src.main import app
 
 
@@ -15,7 +17,13 @@ def test_create_and_get_bug(db_sessionmaker, monkeypatch):
         finally:
             db.close()
 
+    test_user_id = uuid.uuid4()
+
+    def override_current_user():
+        return CurrentUser(id=test_user_id, email="tester@example.com")
+
     app.dependency_overrides[get_db] = override_get_db
+    app.dependency_overrides[get_current_user] = override_current_user
 
     from src.api.routes import bugs as bugs_routes
 

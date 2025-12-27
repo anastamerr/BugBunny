@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 from functools import lru_cache
+import json
 from typing import Any, Dict, Optional
 import uuid
 
@@ -18,7 +19,7 @@ from ...integrations.github_webhook import (
     normalize_repo_list,
     verify_github_signature,
 )
-from ...models import Repository, Scan
+from ...models import Repository, Scan, UserSettings
 from ...realtime import sio
 from ...schemas.bug import BugReportRead
 from ...schemas.scan import ScanRead
@@ -39,17 +40,14 @@ async def github_webhook(
     db: Session = Depends(get_db),
 ) -> Dict[str, Any]:
     settings = get_settings()
-    secret = settings.github_webhook_secret or ""
-    if not secret:
-        raise HTTPException(status_code=500, detail="GITHUB_WEBHOOK_SECRET is not set")
-
     body = await request.body()
     signature = request.headers.get("X-Hub-Signature-256")
-    if not verify_github_signature(secret=secret, body=body, signature_256=signature):
-        raise HTTPException(status_code=401, detail="Invalid signature")
-
     event = (request.headers.get("X-GitHub-Event") or "").lower()
-    payload = await request.json()
+
+    try:
+        payload = json.loads(body.decode("utf-8"))
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=400, detail="Invalid payload") from exc
 
     if event == "ping":
         return {"ok": True, "event": "ping"}
@@ -70,6 +68,26 @@ async def github_webhook(
     if not watched_repos:
         return {"ok": True, "ignored": True, "reason": "repo_not_registered"}
 
+    user_settings = _get_user_settings_map(db, watched_repos)
+    if not _has_webhook_secret(
+        global_secret=settings.github_webhook_secret,
+        user_settings=user_settings,
+    ):
+        raise HTTPException(
+            status_code=500, detail="Webhook secret is not configured"
+        )
+    if not _verify_signature_any(
+        body=body,
+        signature=signature,
+        global_secret=settings.github_webhook_secret,
+        user_settings=user_settings,
+    ):
+        raise HTTPException(status_code=401, detail="Invalid signature")
+
+    eligible_repos = _filter_repos_for_event(event, watched_repos, user_settings)
+    if not eligible_repos:
+        return {"ok": True, "ignored": True, "reason": "repo_not_allowed"}
+
     if event == "push":
         repo_url = repo_url_hint
         branch = _get_branch_from_ref(payload.get("ref"))
@@ -79,7 +97,7 @@ async def github_webhook(
         if not repo_url:
             return {"ok": True, "ignored": True, "reason": "missing_repo_url"}
         scan_ids: list[str] = []
-        for repo in watched_repos:
+        for repo in eligible_repos:
             if _is_rate_limited(db, repo.repo_url, repo.user_id):
                 continue
             scan = _create_scan(
@@ -94,7 +112,12 @@ async def github_webhook(
             )
             scan_ids.append(str(scan.id))
             background_tasks.add_task(
-                run_scan_pipeline, scan.id, scan.repo_url, scan.branch
+                run_scan_pipeline,
+                scan.id,
+                scan.repo_url,
+                scan.branch,
+                scan.scan_type,
+                scan.target_url,
             )
             background_tasks.add_task(
                 sio.emit,
@@ -120,7 +143,7 @@ async def github_webhook(
         if not repo_url:
             return {"ok": True, "ignored": True, "reason": "missing_repo_url"}
         scan_ids: list[str] = []
-        for repo in watched_repos:
+        for repo in eligible_repos:
             if _is_rate_limited(db, repo.repo_url, repo.user_id):
                 continue
             scan = _create_scan(
@@ -137,7 +160,12 @@ async def github_webhook(
             )
             scan_ids.append(str(scan.id))
             background_tasks.add_task(
-                run_scan_pipeline, scan.id, scan.repo_url, scan.branch
+                run_scan_pipeline,
+                scan.id,
+                scan.repo_url,
+                scan.branch,
+                scan.scan_type,
+                scan.target_url,
             )
             background_tasks.add_task(
                 sio.emit,
@@ -155,6 +183,8 @@ async def github_webhook(
             return {"ok": True, "ignored": True, "reason": "pull_request"}
         if not repo_full_name:
             return {"ok": True, "ignored": True, "reason": "missing_repo"}
+        if not eligible_repos:
+            return {"ok": True, "ignored": True, "reason": "repo_not_allowed"}
 
         ingestor = get_ingestor()
         bug, created = ingestor.upsert_issue(
@@ -182,6 +212,8 @@ async def github_webhook(
             return {"ok": True, "ignored": True, "reason": "pull_request"}
         if not repo_full_name:
             return {"ok": True, "ignored": True, "reason": "missing_repo"}
+        if not eligible_repos:
+            return {"ok": True, "ignored": True, "reason": "repo_not_allowed"}
 
         ingestor = get_ingestor()
         bug, created = ingestor.upsert_issue_comment(
@@ -220,10 +252,13 @@ def _create_scan(
         repo_id=repo_id,
         repo_url=repo_url,
         branch=branch,
+        scan_type="sast",
+        target_url=None,
         status="pending",
         trigger=trigger,
         total_findings=0,
         filtered_findings=0,
+        dast_findings=0,
         pr_number=pr_number,
         pr_url=pr_url,
         commit_sha=commit_sha,
@@ -248,6 +283,105 @@ def _is_rate_limited(db: Session, repo_url: str, user_id: uuid.UUID) -> bool:
         .first()
     )
     return recent is not None
+
+
+def _get_user_settings_map(
+    db: Session, repos: list[Repository]
+) -> dict[uuid.UUID, UserSettings]:
+    user_ids = {repo.user_id for repo in repos if repo.user_id}
+    if not user_ids:
+        return {}
+    rows = (
+        db.query(UserSettings).filter(UserSettings.user_id.in_(user_ids)).all()
+    )
+    return {row.user_id: row for row in rows}
+
+
+def _verify_signature_any(
+    *,
+    body: bytes,
+    signature: Optional[str],
+    global_secret: Optional[str],
+    user_settings: dict[uuid.UUID, UserSettings],
+) -> bool:
+    secrets: list[str] = []
+    if global_secret:
+        secrets.append(global_secret)
+    for settings in user_settings.values():
+        if settings.github_webhook_secret:
+            secrets.append(settings.github_webhook_secret)
+
+    if not secrets:
+        return False
+
+    for secret in secrets:
+        if verify_github_signature(
+            secret=secret,
+            body=body,
+            signature_256=signature,
+        ):
+            return True
+    return False
+
+
+def _has_webhook_secret(
+    *,
+    global_secret: Optional[str],
+    user_settings: dict[uuid.UUID, UserSettings],
+) -> bool:
+    if global_secret:
+        return True
+    for settings in user_settings.values():
+        if settings.github_webhook_secret:
+            return True
+    return False
+
+
+def _filter_repos_for_event(
+    event: str,
+    repos: list[Repository],
+    settings_map: dict[uuid.UUID, UserSettings],
+) -> list[Repository]:
+    filtered: list[Repository] = []
+    for repo in repos:
+        settings = settings_map.get(repo.user_id)
+        if not _is_repo_allowed(repo, settings):
+            continue
+        if event == "push" and settings is not None and not settings.enable_scan_push:
+            continue
+        if (
+            event == "pull_request"
+            and settings is not None
+            and not settings.enable_scan_pr
+        ):
+            continue
+        if event == "issues" and settings is not None and not settings.enable_issue_ingest:
+            continue
+        if (
+            event == "issue_comment"
+            and settings is not None
+            and not settings.enable_issue_comment_ingest
+        ):
+            continue
+        filtered.append(repo)
+    return filtered
+
+
+def _is_repo_allowed(
+    repo: Repository,
+    settings: Optional[UserSettings],
+) -> bool:
+    allowlist = settings.github_allowlist if settings else None
+    if not allowlist:
+        return True
+    normalized_allowlist = {str(item).lower() for item in allowlist if item}
+    if not normalized_allowlist:
+        return True
+
+    repo_url = _normalize_repo_url(repo.repo_url)
+    repo_url_norm = repo_url.lower() if repo_url else ""
+    repo_name = (repo.repo_full_name or "").lower()
+    return repo_url_norm in normalized_allowlist or repo_name in normalized_allowlist
 
 
 def _find_watched_repos(

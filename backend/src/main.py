@@ -8,6 +8,7 @@ from .api.routes.health import router as health_router
 from .api.routes.bugs import router as bugs_router
 from .api.routes.chat import router as chat_router
 from .api.routes.demo import router as demo_router
+from .api.routes.profile import router as profile_router
 from .api.routes.repositories import router as repositories_router
 from .api.routes.scans import findings_router, router as scans_router
 from .api.routes.webhooks import router as webhooks_router
@@ -31,6 +32,7 @@ app.include_router(health_router, prefix=settings.api_prefix)
 app.include_router(bugs_router, prefix=settings.api_prefix)
 app.include_router(chat_router, prefix=settings.api_prefix)
 app.include_router(demo_router, prefix=settings.api_prefix)
+app.include_router(profile_router, prefix=settings.api_prefix)
 app.include_router(repositories_router, prefix=settings.api_prefix)
 app.include_router(scans_router, prefix=settings.api_prefix)
 app.include_router(findings_router, prefix=settings.api_prefix)

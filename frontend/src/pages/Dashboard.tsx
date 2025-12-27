@@ -7,7 +7,8 @@ import { scansApi } from "../api/scans";
 import { BugQueue } from "../components/dashboard/BugQueue";
 import { StatsCard } from "../components/dashboard/StatsCard";
 
-function formatRepoName(url: string) {
+function formatRepoName(url?: string | null) {
+  if (!url) return "DAST target";
   try {
     const parsed = new URL(url);
     const parts = parsed.pathname.split("/").filter(Boolean);
@@ -109,6 +110,35 @@ export default function Dashboard() {
         />
       </div>
 
+      <div className="surface-solid p-5">
+        <div className="text-xs font-semibold uppercase tracking-[0.2em] text-white/60">
+          Why ScanGuard AI
+        </div>
+        <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-3">
+          <div className="rounded-card border border-white/10 bg-void p-4">
+            <div className="text-sm font-semibold text-white">Cut the noise</div>
+            <p className="mt-2 text-sm text-white/60">
+              Filter false positives so teams focus on real, exploitable issues.
+            </p>
+          </div>
+          <div className="rounded-card border border-white/10 bg-void p-4">
+            <div className="text-sm font-semibold text-white">
+              Rank by exploitability
+            </div>
+            <p className="mt-2 text-sm text-white/60">
+              Severity is adjusted by context, reachability, and confidence.
+            </p>
+          </div>
+          <div className="rounded-card border border-white/10 bg-void p-4">
+            <div className="text-sm font-semibold text-white">Prove with DAST</div>
+            <p className="mt-2 text-sm text-white/60">
+              Dynamic confirmation adds evidence and boosts confidence for top
+              risks.
+            </p>
+          </div>
+        </div>
+      </div>
+
       <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
         <div className="surface-solid p-5">
           <div className="flex items-center justify-between">
@@ -120,24 +150,34 @@ export default function Dashboard() {
             </Link>
           </div>
           <div className="mt-4 space-y-3 text-sm">
-            {scanList.slice(0, 5).map((scan) => (
-              <div
-                key={scan.id}
-                className="flex items-center justify-between gap-4 rounded-card border border-white/10 bg-surface px-4 py-3"
-              >
-                <div className="min-w-0">
-                  <div className="truncate font-semibold text-white">
-                    {formatRepoName(scan.repo_url)}
+            {scanList.slice(0, 5).map((scan) => {
+              const headline = scan.repo_url
+                ? formatRepoName(scan.repo_url)
+                : scan.target_url || "DAST scan";
+              const scanScope =
+                scan.scan_type === "dast"
+                  ? scan.target_url || "DAST"
+                  : scan.branch;
+
+              return (
+                <div
+                  key={scan.id}
+                  className="flex items-center justify-between gap-4 rounded-card border border-white/10 bg-surface px-4 py-3"
+                >
+                  <div className="min-w-0">
+                    <div className="truncate font-semibold text-white">
+                      {headline}
+                    </div>
+                    <div className="mt-1 text-xs text-white/60">
+                      {scanScope} {"->"} {scan.status}
+                    </div>
                   </div>
-                  <div className="mt-1 text-xs text-white/60">
-                    {scan.branch} • {scan.status}
-                  </div>
+                  <Link to={`/scans/${scan.id}`} className="btn-ghost">
+                    View
+                  </Link>
                 </div>
-                <Link to={`/scans/${scan.id}`} className="btn-ghost">
-                  View
-                </Link>
-              </div>
-            ))}
+              );
+            })}
             {scanList.length === 0 ? (
               <div className="text-sm text-white/60">No scans yet.</div>
             ) : null}

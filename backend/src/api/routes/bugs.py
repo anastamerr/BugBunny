@@ -8,7 +8,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, s
 from sqlalchemy import case, desc
 from sqlalchemy.orm import Session
 
-from ...api.deps import get_db
+from ...api.deps import CurrentUser, get_current_user, get_db
 from ...integrations.pinecone_client import PineconeService
 from ...models import BugReport
 from ...schemas.bug import BugReportCreate, BugReportRead, BugReportUpdate
@@ -62,6 +62,7 @@ def get_correlation_service() -> BugCorrelationService:
 def create_bug(
     payload: BugReportCreate,
     background_tasks: BackgroundTasks,
+    current_user: CurrentUser = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> BugReport:
     classifier = get_classifier()
@@ -132,6 +133,7 @@ def list_bugs(
     status_filter: Optional[str] = Query(default=None, alias="status"),
     sort: str = Query(default="priority", alias="sort"),
     limit: Optional[int] = Query(default=None, ge=1, le=100),
+    current_user: CurrentUser = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> List[BugReport]:
     q = db.query(BugReport)
@@ -164,7 +166,11 @@ def list_bugs(
 
 
 @router.get("/{bug_id}", response_model=BugReportRead)
-def get_bug(bug_id: str, db: Session = Depends(get_db)) -> BugReport:
+def get_bug(
+    bug_id: str,
+    current_user: CurrentUser = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> BugReport:
     try:
         bug_uuid = uuid.UUID(bug_id)
     except ValueError:
@@ -177,8 +183,12 @@ def get_bug(bug_id: str, db: Session = Depends(get_db)) -> BugReport:
 
 
 @router.get("/{bug_id}/duplicates")
-def get_duplicates(bug_id: str, db: Session = Depends(get_db)):
-    bug = get_bug(bug_id, db)
+def get_duplicates(
+    bug_id: str,
+    current_user: CurrentUser = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    bug = get_bug(bug_id, current_user=current_user, db=db)
     duplicate_detector = get_duplicate_detector()
     if not duplicate_detector:
         return []
@@ -191,8 +201,12 @@ def get_duplicates(bug_id: str, db: Session = Depends(get_db)):
 
 
 @router.get("/{bug_id}/correlations")
-def get_correlations(bug_id: str, db: Session = Depends(get_db)):
-    bug = get_bug(bug_id, db)
+def get_correlations(
+    bug_id: str,
+    current_user: CurrentUser = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    bug = get_bug(bug_id, current_user=current_user, db=db)
     correlator = get_correlation_service()
     return correlator.find_correlated(bug, db, top_k=10)
 
@@ -202,9 +216,10 @@ def update_bug(
     bug_id: str,
     payload: BugReportUpdate,
     background_tasks: BackgroundTasks,
+    current_user: CurrentUser = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> BugReport:
-    bug = get_bug(bug_id, db)
+    bug = get_bug(bug_id, current_user=current_user, db=db)
 
     data = payload.model_dump(exclude_unset=True)
     for key, value in data.items():

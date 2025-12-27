@@ -22,8 +22,14 @@ class Scan(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     user_id = Column(UUID(as_uuid=True), nullable=False, index=True)
     repo_id = Column(UUID(as_uuid=True), ForeignKey("repositories.id"), nullable=True)
-    repo_url = Column(String, nullable=False)
+    repo_url = Column(String, nullable=True)
     branch = Column(String, nullable=False, default="main")
+    scan_type = Column(
+        Enum("sast", "dast", "both", name="scan_type"),
+        nullable=False,
+        default="sast",
+    )
+    target_url = Column(String, nullable=True)
     status = Column(
         Enum(
             "pending",
@@ -44,6 +50,7 @@ class Scan(Base):
     )
     total_findings = Column(Integer, nullable=False, default=0)
     filtered_findings = Column(Integer, nullable=False, default=0)
+    dast_findings = Column(Integer, nullable=False, default=0)
     error_message = Column(Text, nullable=True)
     pr_number = Column(Integer, nullable=True)
     pr_url = Column(String, nullable=True)

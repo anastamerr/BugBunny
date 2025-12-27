@@ -395,10 +395,10 @@ export default function Chat() {
     setIsSending(true);
 
     setMessages((prev) => {
-      const next = [
+      const next: ChatMessage[] = [
         ...prev,
-        { role: "user", content: text },
-        { role: "assistant", content: "", meta: { used_llm: true } },
+        { role: "user" as const, content: text },
+        { role: "assistant" as const, content: "", meta: { used_llm: true } },
       ];
       assistantIndexRef.current = next.length - 1;
       return next;

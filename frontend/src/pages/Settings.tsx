@@ -1,13 +1,27 @@
+import { UserCircle } from "lucide-react";
+import { Link } from "react-router-dom";
+
 export default function Settings() {
   return (
     <div className="space-y-6">
       <div className="surface-solid p-6">
-        <h1 className="text-2xl font-extrabold tracking-tight text-white">
-          Settings
-        </h1>
-        <p className="mt-1 text-sm text-white/60">
-          Configure integrations, real-time updates, and AI triage.
-        </p>
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <h1 className="text-2xl font-extrabold tracking-tight text-white">
+              Settings
+            </h1>
+            <p className="mt-1 text-sm text-white/60">
+              Configure integrations, real-time updates, and AI triage.
+            </p>
+          </div>
+          <Link
+            to="/profile"
+            className="btn-ghost h-11 w-11 justify-center p-0"
+            aria-label="Profile"
+          >
+            <UserCircle className="h-5 w-5" />
+          </Link>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
@@ -16,7 +30,8 @@ export default function Settings() {
             Integrations
           </div>
           <p className="mt-1 text-sm text-white/60">
-            Managed server-side via <span className="font-mono text-white/80">backend/.env</span>.
+            User integrations live in Profile, while server-level defaults stay in{" "}
+            <span className="font-mono text-white/80">backend/.env</span>.
           </p>
 
           <div className="mt-4 space-y-3 text-sm">

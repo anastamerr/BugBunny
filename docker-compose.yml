@@ -19,9 +19,13 @@ services:
     environment:
       - REDIS_URL=redis://redis:6379/0
       - OLLAMA_HOST=http://ollama:11434
+      - NUCLEI_TEMPLATES_PATH=/nuclei-templates
+    volumes:
+      - nuclei-templates:/nuclei-templates
     depends_on:
       - redis
       - ollama
+      - nuclei-updater
 
   redis:
     image: redis:7-alpine
@@ -35,6 +39,15 @@ services:
     volumes:
       - ollama_data:/root/.ollama
 
+  nuclei-updater:
+    image: projectdiscovery/nuclei:latest
+    entrypoint: ["/bin/sh", "-c"]
+    command: >
+      nuclei -update-templates &&
+      cp -r /root/nuclei-templates /shared/
+    volumes:
+      - nuclei-templates:/shared
+
   celery_worker:
     build: ./backend
     command: celery -A src.workers worker --loglevel=info
@@ -42,9 +55,14 @@ services:
       - ./backend/.env
     environment:
       - REDIS_URL=redis://redis:6379/0
+      - NUCLEI_TEMPLATES_PATH=/nuclei-templates
+    volumes:
+      - nuclei-templates:/nuclei-templates
     depends_on:
       - redis
       - backend
+      - nuclei-updater
 
 volumes:
   ollama_data:
+  nuclei-templates:

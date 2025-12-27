@@ -18,6 +18,16 @@ Optional:
   - Local Ollama: `OLLAMA_HOST` (default `http://ollama:11434`), optional `OLLAMA_MODEL`
   - OpenRouter: `OPEN_ROUTER_API_KEY` (if set, backend uses OpenRouter by default), optional `OPEN_ROUTER_MODEL`
 
+Optional DAST settings:
+- `DAST_ALLOWED_HOSTS` (comma-separated allowed host suffixes)
+- `NUCLEI_TEMPLATES_PATH`, `NUCLEI_SEVERITIES`, `NUCLEI_RATE_LIMIT`
+- `NUCLEI_TAGS`, `NUCLEI_EXCLUDE_TAGS`, `NUCLEI_PROTOCOLS`
+- `NUCLEI_REQUEST_TIMEOUT_SECONDS`
+
+Optional scan limits:
+- `SCAN_MAX_ACTIVE`
+- `SCAN_MIN_INTERVAL_SECONDS`
+
 ## 2) Run DB migrations (Supabase)
 
 From `backend/`:

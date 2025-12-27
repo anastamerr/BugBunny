@@ -58,6 +58,170 @@ body {
   }
 
   .input {
-    @apply bg-void border-2 border-white/10 text-white rounded-pill focus:border-neon-mint focus:outline-none placeholder-white/30 px-3 py-2;
+    @apply bg-void border-2 border-white/10 text-white rounded-pill focus:border-neon-mint focus:outline-none placeholder-white/30 px-4 py-2.5 text-sm transition-all duration-200 ease-fluid hover:border-white/20 focus:ring-2 focus:ring-neon-mint/20 focus:shadow-[0_0_20px_rgba(0,215,104,0.15)];
+  }
+
+  .input-textarea {
+    @apply bg-void border-2 border-white/10 text-white rounded-card focus:border-neon-mint focus:outline-none placeholder-white/30 px-4 py-3 text-sm transition-all duration-200 ease-fluid hover:border-white/20 focus:ring-2 focus:ring-neon-mint/20 focus:shadow-[0_0_20px_rgba(0,215,104,0.15)] resize-y;
+  }
+
+  .input-group {
+    @apply relative;
+  }
+
+  .input-icon {
+    @apply absolute left-4 top-1/2 -translate-y-1/2 text-white/40 pointer-events-none transition-colors duration-200;
+  }
+
+  .input-group:focus-within .input-icon {
+    @apply text-neon-mint;
+  }
+
+  .input-with-icon {
+    @apply pl-11;
+  }
+
+  /* Segmented Control (Tab Switcher) */
+  .segmented-control {
+    @apply inline-flex items-center gap-1 rounded-pill bg-white/5 p-1 border border-white/10;
+  }
+
+  .segmented-control-item {
+    @apply px-4 py-2 text-sm font-semibold rounded-pill transition-all duration-200 ease-fluid text-white/60 hover:text-white/80;
+  }
+
+  .segmented-control-item[data-active="true"] {
+    @apply bg-neon-mint text-void shadow-lg shadow-neon-mint/20;
+  }
+
+  /* Stats Card */
+  .stat-card {
+    @apply flex flex-col gap-1 rounded-card border border-white/10 bg-white/[0.02] p-4 transition-all duration-200 hover:border-white/20 hover:bg-white/[0.04];
+  }
+
+  .stat-value {
+    @apply text-2xl font-bold tracking-tight text-white;
+  }
+
+  .stat-label {
+    @apply text-xs font-medium uppercase tracking-widest text-white/50;
+  }
+
+  /* Progress Bar */
+  .progress-bar {
+    @apply h-1.5 w-full overflow-hidden rounded-pill bg-white/10;
+  }
+
+  .progress-bar-fill {
+    @apply h-full rounded-pill transition-all duration-500 ease-fluid;
+  }
+
+  /* Scan Card */
+  .scan-card {
+    @apply bg-void border border-white/10 rounded-card p-0 overflow-hidden transition-all duration-200;
+  }
+
+  .scan-card:hover {
+    @apply border-neon-mint/50 shadow-lg shadow-black/20;
+  }
+
+  .scan-card-header {
+    @apply flex items-center justify-between gap-4 border-b border-white/5 bg-white/[0.02] px-5 py-3;
+  }
+
+  .scan-card-body {
+    @apply p-5;
+  }
+
+  /* Status Indicator */
+  .status-dot {
+    @apply h-2 w-2 rounded-full;
+  }
+
+  .status-dot-pulse {
+    @apply animate-pulse;
+  }
+
+  /* Empty State */
+  .empty-state {
+    @apply flex flex-col items-center justify-center gap-4 py-16 text-center;
+  }
+
+  .empty-state-icon {
+    @apply h-16 w-16 text-white/20;
+  }
+
+  .empty-state-title {
+    @apply text-lg font-semibold text-white/80;
+  }
+
+  .empty-state-description {
+    @apply max-w-sm text-sm text-white/50;
+  }
+
+  /* Table */
+  .table-container {
+    @apply overflow-x-auto rounded-card border border-white/10;
+  }
+
+  .table {
+    @apply w-full border-collapse text-sm;
+  }
+
+  .table th {
+    @apply bg-white/[0.03] px-4 py-3 text-left text-xs font-semibold uppercase tracking-widest text-white/50 border-b border-white/10;
+  }
+
+  .table td {
+    @apply px-4 py-4 text-white/80 border-b border-white/5;
+  }
+
+  .table tr:last-child td {
+    @apply border-b-0;
+  }
+
+  .table tr:hover td {
+    @apply bg-white/[0.02];
+  }
+
+  /* Checkbox */
+  .checkbox {
+    @apply h-4 w-4 rounded border-2 border-white/20 bg-void text-neon-mint focus:ring-2 focus:ring-neon-mint/20 focus:ring-offset-0 transition-colors duration-200 cursor-pointer;
+  }
+
+  .checkbox:checked {
+    @apply border-neon-mint bg-neon-mint;
+  }
+
+  /* Select */
+  .select {
+    @apply bg-void border-2 border-white/10 text-white rounded-pill focus:border-neon-mint focus:outline-none placeholder-white/30 px-4 py-2.5 text-sm transition-all duration-200 ease-fluid hover:border-white/20 focus:ring-2 focus:ring-neon-mint/20 appearance-none bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20fill%3D%22none%22%20viewBox%3D%220%200%2024%2024%22%20stroke%3D%22rgba(255%2C255%2C255%2C0.4)%22%3E%3Cpath%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%20stroke-width%3D%222%22%20d%3D%22M19%209l-7%207-7-7%22%2F%3E%3C%2Fsvg%3E')] bg-[length:1.25rem] bg-[right_0.75rem_center] bg-no-repeat pr-10;
+  }
+
+  /* Search Input */
+  .search-input {
+    @apply bg-void border-2 border-white/10 text-white rounded-pill focus:border-neon-mint focus:outline-none placeholder-white/30 px-4 py-2.5 text-sm transition-all duration-200 ease-fluid hover:border-white/20 focus:ring-2 focus:ring-neon-mint/20 pl-10 bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20fill%3D%22none%22%20viewBox%3D%220%200%2024%2024%22%20stroke%3D%22rgba(255%2C255%2C255%2C0.3)%22%3E%3Cpath%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%20stroke-width%3D%222%22%20d%3D%22M21%2021l-6-6m2-5a7%207%200%2011-14%200%207%207%200%200114%200z%22%2F%3E%3C%2Fsvg%3E')] bg-[length:1.25rem] bg-[left_0.75rem_center] bg-no-repeat;
+  }
+
+  /* Tooltip */
+  .tooltip {
+    @apply relative inline-flex;
+  }
+
+  .tooltip-content {
+    @apply absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 text-xs font-medium text-void bg-white rounded-lg opacity-0 invisible transition-all duration-200 whitespace-nowrap z-50;
+  }
+
+  .tooltip:hover .tooltip-content {
+    @apply opacity-100 visible;
+  }
+
+  /* Divider */
+  .divider {
+    @apply h-px w-full bg-white/10;
+  }
+
+  .divider-vertical {
+    @apply w-px h-full bg-white/10;
   }
 }
