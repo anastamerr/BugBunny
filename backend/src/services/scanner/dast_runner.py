@@ -18,11 +18,13 @@ class DASTRunner:
     def __init__(self, nuclei_path: str = "nuclei") -> None:
         self.nuclei_path = nuclei_path
         self.settings = get_settings()
+        self.last_error: str | None = None
 
     def is_available(self) -> bool:
         return shutil.which(self.nuclei_path) is not None
 
     async def scan(self, target_url: str) -> List[DynamicFinding]:
+        self.last_error = None
         cmd = [
             self.nuclei_path,
             "-u",
@@ -37,6 +39,20 @@ class DASTRunner:
         severity_filter = _normalize_severity_filter(self.settings.nuclei_severities)
         if severity_filter:
             cmd.extend(["-severity", severity_filter])
+        tag_filter = _normalize_csv(self.settings.nuclei_tags)
+        if tag_filter:
+            cmd.extend(["-tags", tag_filter])
+        exclude_tags = _normalize_csv(self.settings.nuclei_exclude_tags)
+        if exclude_tags:
+            cmd.extend(["-exclude-tags", exclude_tags])
+        protocol_filter = _normalize_csv(self.settings.nuclei_protocols)
+        if protocol_filter:
+            cmd.extend(["-pt", protocol_filter])
+        if (
+            self.settings.nuclei_request_timeout_seconds
+            and self.settings.nuclei_request_timeout_seconds > 0
+        ):
+            cmd.extend(["-timeout", str(self.settings.nuclei_request_timeout_seconds)])
 
         try:
             result = await asyncio.to_thread(
@@ -48,6 +64,9 @@ class DASTRunner:
                 timeout=self.settings.nuclei_timeout_seconds,
             )
         except subprocess.TimeoutExpired:
+            self.last_error = (
+                f"Nuclei scan timed out after {self.settings.nuclei_timeout_seconds}s."
+            )
             logger.warning(
                 "Nuclei scan timed out after %ss for %s",
                 self.settings.nuclei_timeout_seconds,
@@ -56,6 +75,11 @@ class DASTRunner:
             return []
 
         if result.returncode != 0:
+            stderr = (result.stderr or "").strip()
+            self.last_error = (
+                f"Nuclei exited with code {result.returncode}."
+                f"{' ' + stderr if stderr else ''}"
+            )
             logger.error(
                 "Nuclei exited with code %s for %s: %s",
                 result.returncode,
@@ -146,6 +170,10 @@ def _to_list(value) -> List[str]:
 
 
 def _normalize_severity_filter(value: str | None) -> str | None:
+    return _normalize_csv(value)
+
+
+def _normalize_csv(value: str | None) -> str | None:
     if not value:
         return None
     if isinstance(value, str):

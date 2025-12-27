@@ -43,6 +43,13 @@ class Settings(BaseSettings):
     nuclei_timeout_seconds: int = 300
     nuclei_rate_limit: Optional[int] = None
     nuclei_severities: Optional[str] = None
+    nuclei_request_timeout_seconds: Optional[int] = None
+    nuclei_tags: Optional[str] = None
+    nuclei_exclude_tags: Optional[str] = None
+    nuclei_protocols: Optional[str] = None
+    dast_allowed_hosts: Optional[str] = None
+    scan_max_active: Optional[int] = None
+    scan_min_interval_seconds: Optional[int] = None
 
     if SettingsConfigDict is not None:
         _ENV_FILE = Path(__file__).resolve().parents[1] / ".env"

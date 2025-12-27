@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from datetime import datetime, timedelta
 from typing import List, Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
@@ -8,6 +9,7 @@ from sqlalchemy import case, desc
 from sqlalchemy.orm import Session
 
 from ...api.deps import CurrentUser, get_current_user, get_db
+from ...config import get_settings
 from ...models import Finding, Repository, Scan
 from ...realtime import sio
 from ...schemas.finding import FindingRead, FindingUpdate
@@ -48,6 +50,47 @@ async def create_scan(
 
     if repo_url:
         repo_url = _normalize_repo_url(repo_url)
+
+    settings = get_settings()
+    if settings.scan_max_active:
+        active_statuses = ["pending", "cloning", "scanning", "analyzing"]
+        active_count = (
+            db.query(Scan)
+            .filter(
+                Scan.user_id == current_user.id,
+                Scan.status.in_(active_statuses),
+            )
+            .count()
+        )
+        if active_count >= settings.scan_max_active:
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail="Too many active scans. Please wait for existing scans to finish.",
+            )
+
+    if settings.scan_min_interval_seconds:
+        cutoff = datetime.utcnow() - timedelta(
+            seconds=settings.scan_min_interval_seconds
+        )
+        recent = (
+            db.query(Scan)
+            .filter(
+                Scan.user_id == current_user.id,
+                Scan.created_at >= cutoff,
+            )
+            .order_by(Scan.created_at.desc())
+            .first()
+        )
+        if recent is not None:
+            elapsed = datetime.utcnow() - recent.created_at
+            remaining = settings.scan_min_interval_seconds - int(
+                elapsed.total_seconds()
+            )
+            if remaining > 0:
+                raise HTTPException(
+                    status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                    detail=f"Scan rate limit exceeded. Try again in {remaining}s.",
+                )
 
     scan = Scan(
         user_id=current_user.id,

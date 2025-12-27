@@ -55,6 +55,7 @@ async def run_scan_pipeline(
         triaged = []
         dast_findings = []
         dependency_findings = []
+        dast_error: str | None = None
 
         if scan_type in {"sast", "both"}:
             if not repo_url:
@@ -125,7 +126,33 @@ async def run_scan_pipeline(
             )
             if dast_runner.is_available():
                 dast_findings = await dast_runner.scan(target_url)
+                if dast_runner.last_error:
+                    dast_error = f"DAST error: {dast_runner.last_error}"
+            else:
+                dast_error = "DAST error: Nuclei binary not found."
             _update_scan(db, scan_id, dast_findings=len(dast_findings))
+            if dast_error:
+                error_message = _merge_error_message(
+                    scan.error_message if scan else None,
+                    dast_error,
+                )
+                if scan_type == "dast":
+                    _update_scan(
+                        db,
+                        scan_id,
+                        status="failed",
+                        error_message=error_message,
+                    )
+                    await sio.emit(
+                        "scan.failed",
+                        {
+                            "scan_id": str(scan_id),
+                            "status": "failed",
+                            "error": dast_error,
+                        },
+                    )
+                    return
+                _update_scan(db, scan_id, error_message=error_message)
 
         _update_scan(db, scan_id, status="analyzing")
         await sio.emit(
@@ -402,3 +429,11 @@ def _priority_from_dependency(value: str, cvss_score: Optional[float]) -> int:
             return 55
         return 35
     return _priority_from_dast(value)
+
+
+def _merge_error_message(current: Optional[str], new_message: str) -> str:
+    if not current:
+        return new_message
+    if new_message in current:
+        return current
+    return f"{current}\n{new_message}"

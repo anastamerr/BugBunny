@@ -71,6 +71,164 @@ def test_create_scan_creates_record(db_sessionmaker, monkeypatch):
     app.dependency_overrides.clear()
 
 
+def test_create_dast_scan_validates_target(db_sessionmaker, monkeypatch):
+    from src.api.routes import scans as scans_routes
+    from src.schemas import scan as scan_schema
+
+    class DummySettings:
+        dast_allowed_hosts = None
+
+    async def fake_run_scan_pipeline(  # noqa: ANN001
+        scan_id, repo_url, branch, scan_type="sast", target_url=None
+    ):
+        return None
+
+    monkeypatch.setattr(scans_routes, "run_scan_pipeline", fake_run_scan_pipeline)
+    monkeypatch.setattr(scans_routes, "sio", DummySio())
+    monkeypatch.setattr(scan_schema, "get_settings", lambda: DummySettings())
+
+    app.dependency_overrides[get_db] = _override_db(db_sessionmaker)
+    app.dependency_overrides[get_current_user] = _override_current_user
+    client = TestClient(app)
+
+    resp = client.post(
+        "/api/scans",
+        json={
+            "scan_type": "dast",
+            "target_url": "scanme.nmap.org",
+            "dast_consent": True,
+        },
+    )
+    assert resp.status_code == 422
+
+    resp = client.post(
+        "/api/scans",
+        json={
+            "scan_type": "dast",
+            "target_url": "http://localhost:8000",
+            "dast_consent": True,
+        },
+    )
+    assert resp.status_code == 422
+
+    resp = client.post(
+        "/api/scans",
+        json={
+            "scan_type": "dast",
+            "target_url": "http://scanme.nmap.org",
+            "dast_consent": True,
+        },
+    )
+    assert resp.status_code == 201
+    payload = resp.json()
+    assert payload["target_url"] == "http://scanme.nmap.org"
+    assert payload["scan_type"] == "dast"
+
+    app.dependency_overrides.clear()
+
+
+def test_create_dast_scan_allowlist(db_sessionmaker, monkeypatch):
+    from src.api.routes import scans as scans_routes
+    from src.schemas import scan as scan_schema
+
+    class AllowlistSettings:
+        dast_allowed_hosts = "example.com,trusted.org"
+        scan_max_active = None
+        scan_min_interval_seconds = None
+
+    async def fake_run_scan_pipeline(  # noqa: ANN001
+        scan_id, repo_url, branch, scan_type="sast", target_url=None
+    ):
+        return None
+
+    monkeypatch.setattr(scans_routes, "run_scan_pipeline", fake_run_scan_pipeline)
+    monkeypatch.setattr(scans_routes, "sio", DummySio())
+    monkeypatch.setattr(scans_routes, "get_settings", lambda: AllowlistSettings())
+    monkeypatch.setattr(scan_schema, "get_settings", lambda: AllowlistSettings())
+
+    app.dependency_overrides[get_db] = _override_db(db_sessionmaker)
+    app.dependency_overrides[get_current_user] = _override_current_user
+    client = TestClient(app)
+
+    resp = client.post(
+        "/api/scans",
+        json={
+            "scan_type": "dast",
+            "target_url": "http://notallowed.com",
+            "dast_consent": True,
+        },
+    )
+    assert resp.status_code == 422
+
+    resp = client.post(
+        "/api/scans",
+        json={
+            "scan_type": "dast",
+            "target_url": "http://example.com",
+            "dast_consent": True,
+        },
+    )
+    assert resp.status_code == 201
+    assert resp.json()["target_url"] == "http://example.com"
+
+    resp = client.post(
+        "/api/scans",
+        json={
+            "scan_type": "dast",
+            "target_url": "http://sub.trusted.org/path",
+            "dast_consent": True,
+        },
+    )
+    assert resp.status_code == 201
+    assert resp.json()["target_url"] == "http://sub.trusted.org/path"
+
+    app.dependency_overrides.clear()
+
+
+def test_scan_limit_blocks_active_scans(db_sessionmaker, monkeypatch):
+    from src.api.routes import scans as scans_routes
+
+    class DummySettings:
+        scan_max_active = 1
+        scan_min_interval_seconds = None
+
+    async def fake_run_scan_pipeline(  # noqa: ANN001
+        scan_id, repo_url, branch, scan_type="sast", target_url=None
+    ):
+        return None
+
+    monkeypatch.setattr(scans_routes, "run_scan_pipeline", fake_run_scan_pipeline)
+    monkeypatch.setattr(scans_routes, "sio", DummySio())
+    monkeypatch.setattr(scans_routes, "get_settings", lambda: DummySettings())
+
+    app.dependency_overrides[get_db] = _override_db(db_sessionmaker)
+    app.dependency_overrides[get_current_user] = _override_current_user
+    client = TestClient(app)
+
+    db = db_sessionmaker()
+    db.add(
+        Scan(
+            user_id=TEST_USER_ID,
+            repo_url="https://github.com/example/repo",
+            branch="main",
+            status="scanning",
+            trigger="manual",
+            total_findings=0,
+            filtered_findings=0,
+        )
+    )
+    db.commit()
+    db.close()
+
+    resp = client.post(
+        "/api/scans",
+        json={"repo_url": "https://github.com/example/repo", "branch": "main"},
+    )
+    assert resp.status_code == 429
+
+    app.dependency_overrides.clear()
+
+
 def test_scan_findings_filtering(db_sessionmaker, monkeypatch):
     from src.api.routes import scans as scans_routes
 

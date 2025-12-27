@@ -30,6 +30,16 @@ Create/update `backend/.env` (this file is gitignored). Minimum recommended:
 
 Reference template: `backend/.env.example` (or `.env.example`)
 
+Optional DAST settings:
+- `DAST_ALLOWED_HOSTS` (comma-separated allowed host suffixes)
+- `NUCLEI_TEMPLATES_PATH`, `NUCLEI_SEVERITIES`, `NUCLEI_RATE_LIMIT`
+- `NUCLEI_TAGS`, `NUCLEI_EXCLUDE_TAGS`, `NUCLEI_PROTOCOLS`
+- `NUCLEI_REQUEST_TIMEOUT_SECONDS`
+
+Optional scan limits:
+- `SCAN_MAX_ACTIVE` (max in-flight scans per user)
+- `SCAN_MIN_INTERVAL_SECONDS` (cooldown between scans)
+
 ## 2) Database migrations (Supabase)
 
 From `backend/`:
