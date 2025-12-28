@@ -21,6 +21,7 @@ from reportlab.platypus import (
 )
 
 from ...models import Finding, Scan
+from .report_insights import ReportInsights
 
 MAX_CRITICAL_FINDINGS = 10
 MAX_PRIORITY_FINDINGS = 8
@@ -93,6 +94,7 @@ def build_scan_report_pdf(
     scan: Scan,
     findings: Sequence[Finding],
     trend_scans: Sequence[Scan],
+    insights: ReportInsights | None = None,
 ) -> bytes:
     generated_at = datetime.now(timezone.utc)
     buffer = BytesIO()
@@ -127,6 +129,16 @@ def build_scan_report_pdf(
     story.append(Paragraph("Summary Statistics", styles["SectionHeading"]))
     story.extend(_build_stats_summary(scan, findings, styles, page_width))
     story.append(Spacer(1, 16))
+
+    # Executive Summary section (AI Insights)
+    if insights:
+        story.append(HorizontalRule(page_width))
+        story.append(Spacer(1, 12))
+        story.append(
+            Paragraph("Executive Summary (AI Insights)", styles["SectionHeading"])
+        )
+        story.extend(_build_insights_section(insights, styles))
+        story.append(Spacer(1, 16))
 
     # AI Decisioning section
     story.append(HorizontalRule(page_width))
@@ -390,6 +402,70 @@ def _ai_summary_text() -> str:
         "as false positives are excluded from this report. Priority ordering blends "
         "AI severity, confidence, and confirmed exploitability."
     )
+
+
+def _build_insights_section(
+    insights: ReportInsights, styles: dict[str, ParagraphStyle]
+) -> list:
+    blocks: list = []
+    blocks.append(
+        Paragraph(_clean_text(insights.executive_summary, 900), styles["Body"])
+    )
+    blocks.append(Spacer(1, 6))
+    blocks.append(
+        Paragraph(
+            f"<b>Risk posture:</b> {_clean_text(insights.risk_posture, 220)}",
+            styles["Body"],
+        )
+    )
+    blocks.append(Spacer(1, 6))
+    blocks.append(
+        Paragraph(
+            f"<b>Business impact:</b> {_clean_text(insights.business_impact, 240)}",
+            styles["Body"],
+        )
+    )
+    blocks.append(Spacer(1, 6))
+    blocks.append(
+        Paragraph(
+            "<b>Key risks:</b><br/>" + _format_bullets(insights.key_risks),
+            styles["Body"],
+        )
+    )
+    blocks.append(Spacer(1, 6))
+    blocks.append(
+        Paragraph(
+            "<b>Recommended actions:</b><br/>"
+            + _format_bullets(insights.recommended_actions),
+            styles["Body"],
+        )
+    )
+    if insights.assurance_notes:
+        blocks.append(Spacer(1, 6))
+        blocks.append(
+            Paragraph(
+                f"<b>Coverage notes:</b> {_clean_text(insights.assurance_notes, 240)}",
+                styles["BodySmall"],
+            )
+        )
+    if insights.confidence is not None:
+        confidence_pct = int(round(insights.confidence * 100))
+        blocks.append(
+            Paragraph(
+                f"AI confidence: {confidence_pct}%",
+                styles["BodySmall"],
+            )
+        )
+    return blocks
+
+
+def _format_bullets(items: Sequence[str]) -> str:
+    if not items:
+        return "- n/a"
+    safe_items = [f"- {_clean_text(item, 200)}" for item in items if item]
+    if not safe_items:
+        return "- n/a"
+    return "<br/>".join(safe_items)
 
 
 def _build_critical_findings(

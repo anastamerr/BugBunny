@@ -17,8 +17,9 @@ from ...realtime import sio
 from ...schemas.finding import FindingRead, FindingUpdate
 from ...schemas.scan import ScanCreate, ScanRead
 from ...services.reports import build_scan_report_pdf
+from ...services.reports.report_insights import generate_report_insights_sync
 from ...services.scanner import run_scan_pipeline
-from ...services.storage import upload_pdf, delete_pdf
+from ...services.storage import delete_pdf, download_pdf, get_pdf_url, upload_pdf
 
 router = APIRouter(prefix="/scans", tags=["scans"])
 findings_router = APIRouter(prefix="/findings", tags=["findings"])
@@ -169,21 +170,57 @@ def get_scan_report(
 ) -> StreamingResponse:
     scan = get_scan(scan_id, current_user=current_user, db=db)
 
-    # Use cached report URL if available and not regenerating
-    if scan.report_url and not regenerate:
+    # Always use cached report if it already exists.
+    cached_url = scan.report_url
+    cached_bytes = download_pdf(str(scan.id))
+    if cached_bytes is not None:
+        if regenerate:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Report already generated; regeneration is disabled.",
+            )
+        if not cached_url:
+            cached_url = get_pdf_url(str(scan.id))
+            if cached_url:
+                scan.report_url = cached_url
+                if not scan.report_generated_at:
+                    scan.report_generated_at = datetime.now(timezone.utc)
+                db.add(scan)
+                db.commit()
+        filename = f"scan-report-{scan.id}.pdf"
+        headers = {"Content-Disposition": f'attachment; filename="{filename}"'}
+        return StreamingResponse(
+            BytesIO(cached_bytes),
+            media_type="application/pdf",
+            headers=headers,
+        )
+
+    if cached_url:
+        if regenerate:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Report already generated; regeneration is disabled.",
+            )
         import httpx
-        try:
-            response = httpx.get(scan.report_url, timeout=30.0)
-            if response.status_code == 200:
-                filename = f"scan-report-{scan.id}.pdf"
-                headers = {"Content-Disposition": f'attachment; filename="{filename}"'}
-                return StreamingResponse(
-                    BytesIO(response.content),
-                    media_type="application/pdf",
-                    headers=headers,
-                )
-        except Exception:
-            pass  # Fall through to regenerate if fetch fails
+        response = httpx.get(cached_url, timeout=30.0)
+        if response.status_code != 200:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail="Failed to fetch report from storage.",
+            )
+        filename = f"scan-report-{scan.id}.pdf"
+        headers = {"Content-Disposition": f'attachment; filename="{filename}"'}
+        return StreamingResponse(
+            BytesIO(response.content),
+            media_type="application/pdf",
+            headers=headers,
+        )
+
+    if scan.report_generated_at:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Report already generated; cached file is missing or storage is unavailable.",
+        )
 
     # Generate new report
     findings = (
@@ -202,15 +239,25 @@ def get_scan_report(
         .limit(12)
         .all()
     )
-    pdf_bytes = build_scan_report_pdf(scan, findings, trend_scans)
+    insights = generate_report_insights_sync(scan, findings, trend_scans)
+    pdf_bytes = build_scan_report_pdf(
+        scan,
+        findings,
+        trend_scans,
+        insights=insights,
+    )
 
     # Upload to Supabase storage and cache URL
-    report_url = upload_pdf(str(scan.id), pdf_bytes)
-    if report_url:
-        scan.report_url = report_url
-        scan.report_generated_at = datetime.now(timezone.utc)
-        db.add(scan)
-        db.commit()
+    report_url = upload_pdf(str(scan.id), pdf_bytes, upsert=False)
+    if not report_url:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Failed to store report in Supabase.",
+        )
+    scan.report_url = report_url
+    scan.report_generated_at = datetime.now(timezone.utc)
+    db.add(scan)
+    db.commit()
 
     filename = f"scan-report-{scan.id}.pdf"
     headers = {"Content-Disposition": f'attachment; filename="{filename}"'}
@@ -237,7 +284,6 @@ def delete_scan_report(
     if scan.report_url:
         delete_pdf(str(scan.id))
         scan.report_url = None
-        scan.report_generated_at = None
         db.add(scan)
         db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)

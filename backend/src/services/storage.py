@@ -21,7 +21,12 @@ def _get_supabase_client() -> Optional[Client]:
     return create_client(settings.supabase_url, settings.supabase_service_key)
 
 
-def upload_pdf(scan_id: str, pdf_bytes: bytes) -> Optional[str]:
+def upload_pdf(
+    scan_id: str,
+    pdf_bytes: bytes,
+    *,
+    upsert: bool = False,
+) -> Optional[str]:
     """Upload PDF to Supabase storage and return public URL."""
     client = _get_supabase_client()
     if not client:
@@ -33,13 +38,20 @@ def upload_pdf(scan_id: str, pdf_bytes: bytes) -> Optional[str]:
         client.storage.from_(BUCKET_NAME).upload(
             file_path,
             pdf_bytes,
-            file_options={"content-type": "application/pdf", "upsert": "true"},
+            file_options={
+                "content-type": "application/pdf",
+                "upsert": "true" if upsert else "false",
+            },
         )
         # Get public URL
         public_url = client.storage.from_(BUCKET_NAME).get_public_url(file_path)
         logger.info(f"Uploaded PDF report for scan {scan_id}")
         return public_url
     except Exception as e:
+        if not upsert:
+            existing = get_pdf_url(scan_id)
+            if existing:
+                return existing
         logger.error(f"Failed to upload PDF for scan {scan_id}: {e}")
         return None
 
@@ -60,6 +72,29 @@ def get_pdf_url(scan_id: str) -> Optional[str]:
     except Exception as e:
         logger.error(f"Failed to check PDF for scan {scan_id}: {e}")
         return None
+
+
+def download_pdf(scan_id: str) -> Optional[bytes]:
+    """Download PDF bytes from Supabase storage."""
+    client = _get_supabase_client()
+    if not client:
+        return None
+
+    file_path = f"{scan_id}.pdf"
+    try:
+        data = client.storage.from_(BUCKET_NAME).download(file_path)
+    except Exception as e:
+        logger.error(f"Failed to download PDF for scan {scan_id}: {e}")
+        return None
+
+    if isinstance(data, bytes):
+        return data
+    if hasattr(data, "read"):
+        try:
+            return data.read()
+        except Exception:
+            return None
+    return None
 
 
 def delete_pdf(scan_id: str) -> bool:
