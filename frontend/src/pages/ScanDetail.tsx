@@ -56,6 +56,13 @@ export default function ScanDetail() {
   const [includeFalsePositives, setIncludeFalsePositives] = useState(false);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
   const [updateError, setUpdateError] = useState<string | null>(null);
+  const [autoFixing, setAutoFixing] = useState<{
+    id: string;
+    action: "preview" | "pr";
+  } | null>(null);
+  const [autoFixErrors, setAutoFixErrors] = useState<
+    Record<string, string | null>
+  >({});
   const [isDownloadingReport, setIsDownloadingReport] = useState(false);
   const [reportError, setReportError] = useState<string | null>(null);
 
@@ -109,6 +116,38 @@ export default function ScanDetail() {
     },
     onSettled: async () => {
       setUpdatingId(null);
+      await queryClient.invalidateQueries({ queryKey: ["findings"] });
+    },
+  });
+
+  const autofixFinding = useMutation({
+    mutationFn: async (payload: {
+      id: string;
+      createPr: boolean;
+      regenerate?: boolean;
+    }) =>
+      scansApi.autofixFinding(payload.id, {
+        create_pr: payload.createPr,
+        regenerate: payload.regenerate,
+      }),
+    onMutate: ({ id: findingId, createPr }) => {
+      setAutoFixing({ id: findingId, action: createPr ? "pr" : "preview" });
+      setAutoFixErrors((prev) => ({ ...prev, [findingId]: null }));
+    },
+    onSuccess: (data) => {
+      if (data.error) {
+        setAutoFixErrors((prev) => ({ ...prev, [data.finding.id]: data.error }));
+      }
+    },
+    onError: (err, payload) => {
+      setAutoFixErrors((prev) => ({
+        ...prev,
+        [payload.id]:
+          err instanceof Error ? err.message : "Failed to generate auto-fix.",
+      }));
+    },
+    onSettled: async () => {
+      setAutoFixing(null);
       await queryClient.invalidateQueries({ queryKey: ["findings"] });
     },
   });
@@ -610,8 +649,22 @@ export default function ScanDetail() {
             key={finding.id}
             finding={finding}
             isUpdating={updateFinding.isPending && updatingId === finding.id}
+            isAutoFixing={
+              autofixFinding.isPending && autoFixing?.id === finding.id
+            }
+            autoFixAction={
+              autoFixing?.id === finding.id ? autoFixing.action : null
+            }
+            autoFixError={autoFixErrors[finding.id] ?? null}
             onUpdateStatus={(findingId, status) =>
               updateFinding.mutate({ id: findingId, status })
+            }
+            onAutoFix={(findingId, options) =>
+              autofixFinding.mutate({
+                id: findingId,
+                createPr: options.createPr,
+                regenerate: options.regenerate,
+              })
             }
           />
         ))}

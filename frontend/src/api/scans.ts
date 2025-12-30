@@ -1,5 +1,5 @@
 import { api } from "./client";
-import type { Finding, Scan } from "../types";
+import type { AutoFixResponse, Finding, Scan } from "../types";
 
 export const scansApi = {
   create: async (payload: {
@@ -42,6 +42,17 @@ export const scansApi = {
   ) => {
     const { data } = await api.patch<Finding>(
       `/api/findings/${findingId}`,
+      payload,
+    );
+    return data;
+  },
+
+  autofixFinding: async (
+    findingId: string,
+    payload: { create_pr?: boolean; regenerate?: boolean } = {},
+  ) => {
+    const { data } = await api.post<AutoFixResponse>(
+      `/api/findings/${findingId}/autofix`,
       payload,
     );
     return data;

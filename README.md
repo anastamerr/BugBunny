@@ -7,6 +7,7 @@ ScanGuard AI is a context-aware static analysis platform that runs Semgrep and u
 - Context extraction (function/class scope, test/generated detection) plus reachability heuristics.
 - LLM triage (OpenRouter or Ollama) to mark false positives and explain exploitability.
 - Prioritization and semantic deduplication (Pinecone optional).
+- Auto-fix previews and GitHub PRs for eligible high-confidence SAST findings.
 - Optional DAST with Nuclei and correlation against SAST findings.
 - Dependency CVE scanning via Trivy and dependency health checks from registries.
 - Real-time scan updates over Socket.IO and optional PDF scan reports.
@@ -96,6 +97,7 @@ docker compose up --build
 - `GET /api/scans/{id}/findings`
 - `GET /api/findings`
 - `PATCH /api/findings/{id}`
+- `POST /api/findings/{id}/autofix`
 - `GET /api/scans/{id}/report`
 - `POST /api/webhooks/github`
 - `POST /api/chat`

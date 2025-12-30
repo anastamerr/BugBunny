@@ -33,6 +33,12 @@ class FindingStatus(str, Enum):
     dismissed = "dismissed"
 
 
+class FixStatus(str, Enum):
+    generated = "generated"
+    pr_opened = "pr_opened"
+    failed = "failed"
+
+
 class FindingBase(BaseModel):
     scan_id: uuid.UUID
     rule_id: str
@@ -74,6 +80,15 @@ class FindingBase(BaseModel):
 
     status: FindingStatus = FindingStatus.new
     priority_score: Optional[int] = None
+
+    fix_status: Optional[FixStatus] = None
+    fix_summary: Optional[str] = None
+    fix_patch: Optional[str] = None
+    fix_pr_url: Optional[str] = None
+    fix_branch: Optional[str] = None
+    fix_error: Optional[str] = None
+    fix_confidence: Optional[float] = None
+    fix_generated_at: Optional[datetime] = None
 
 
 class FindingCreate(FindingBase):

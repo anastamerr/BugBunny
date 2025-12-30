@@ -137,6 +137,26 @@ irm -Method Post http://localhost:8000/api/scans `
 - Bugs list (legacy): `GET /api/bugs`
 - Chat: `POST /api/chat`
 
+## 8) Auto-fix previews + PRs
+
+Auto-fix requires a GitHub token with repo access (set in Profile or backend env).
+
+Preview a patch:
+
+```powershell
+irm -Method Post http://localhost:8000/api/findings/<finding_id>/autofix `
+  -ContentType "application/json" `
+  -Body '{\"create_pr\": false}'
+```
+
+Open a PR:
+
+```powershell
+irm -Method Post http://localhost:8000/api/findings/<finding_id>/autofix `
+  -ContentType "application/json" `
+  -Body '{\"create_pr\": true}'
+```
+
 ## Troubleshooting
 
 - Semgrep not found: install dependencies via `pip install -r backend/requirements.txt` or use Docker.

@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Dict, Iterator, Optional
+import re
+from typing import Any, Dict, Iterator, Optional, Tuple
 
 import httpx
 
@@ -67,6 +68,60 @@ class GitHubClient:
                     return
 
             page += 1
+
+    def create_pull_request(
+        self,
+        repo_full_name: str,
+        *,
+        title: str,
+        body: str,
+        head: str,
+        base: str,
+    ) -> Tuple[str, Optional[int]]:
+        owner, repo = repo_full_name.split("/", 1)
+        resp = self._client.post(
+            f"/repos/{owner}/{repo}/pulls",
+            json={
+                "title": title,
+                "body": body,
+                "head": head,
+                "base": base,
+            },
+        )
+        resp.raise_for_status()
+        payload = resp.json()
+        html_url = payload.get("html_url")
+        if not isinstance(html_url, str) or not html_url.strip():
+            raise RuntimeError("GitHub did not return a PR URL.")
+        pr_number = payload.get("number")
+        if not isinstance(pr_number, int):
+            pr_number = None
+            match = re.search(r"/pull/(\d+)", html_url)
+            if match:
+                try:
+                    pr_number = int(match.group(1))
+                except ValueError:
+                    pr_number = None
+        return html_url.strip(), pr_number
+
+    def create_issue_comment(
+        self,
+        repo_full_name: str,
+        *,
+        issue_number: int,
+        body: str,
+    ) -> str:
+        owner, repo = repo_full_name.split("/", 1)
+        resp = self._client.post(
+            f"/repos/{owner}/{repo}/issues/{issue_number}/comments",
+            json={"body": body},
+        )
+        resp.raise_for_status()
+        payload = resp.json()
+        html_url = payload.get("html_url")
+        if not isinstance(html_url, str) or not html_url.strip():
+            raise RuntimeError("GitHub did not return a comment URL.")
+        return html_url.strip()
 
 
 def parse_github_timestamp(value: Optional[str]):

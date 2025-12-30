@@ -101,6 +101,25 @@ export interface Finding {
   call_path?: string[] | null;
   status: "new" | "confirmed" | "dismissed";
   priority_score?: number | null;
+  fix_status?: "generated" | "pr_opened" | "failed" | null;
+  fix_summary?: string | null;
+  fix_patch?: string | null;
+  fix_pr_url?: string | null;
+  fix_branch?: string | null;
+  fix_error?: string | null;
+  fix_confidence?: number | null;
+  fix_generated_at?: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface AutoFixResponse {
+  status: "generated" | "pr_opened" | "failed";
+  patch?: string | null;
+  summary?: string | null;
+  confidence?: number | null;
+  pr_url?: string | null;
+  branch?: string | null;
+  error?: string | null;
+  finding: Finding;
 }

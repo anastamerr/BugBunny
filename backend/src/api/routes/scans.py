@@ -12,12 +12,14 @@ from sqlalchemy.orm import Session
 
 from ...api.deps import CurrentUser, get_current_user, get_db
 from ...config import get_settings
-from ...models import Finding, Repository, Scan
+from ...models import Finding, Repository, Scan, UserSettings
 from ...realtime import sio
+from ...schemas.autofix import AutoFixRequest, AutoFixResponse
 from ...schemas.finding import FindingRead, FindingUpdate
 from ...schemas.scan import ScanCreate, ScanRead
 from ...services.reports import build_scan_report_pdf
 from ...services.reports.report_insights import generate_report_insights_sync
+from ...services.autofix_service import AutoFixService
 from ...services.scanner import run_scan_pipeline
 from ...services.storage import delete_pdf, download_pdf, get_pdf_url, upload_pdf
 
@@ -381,6 +383,77 @@ def update_finding(
     )
     return finding
 
+
+@findings_router.post("/{finding_id}/autofix", response_model=AutoFixResponse)
+async def autofix_finding(
+    finding_id: str,
+    payload: AutoFixRequest,
+    background_tasks: BackgroundTasks,
+    current_user: CurrentUser = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> AutoFixResponse:
+    finding = get_finding(finding_id, current_user=current_user, db=db)
+    scan = (
+        db.query(Scan)
+        .filter(Scan.id == finding.scan_id, Scan.user_id == current_user.id)
+        .first()
+    )
+    if not scan:
+        raise HTTPException(status_code=404, detail="Scan not found")
+
+    settings = (
+        db.query(UserSettings)
+        .filter(UserSettings.user_id == current_user.id)
+        .first()
+    )
+    github_token = None
+    if settings and settings.github_token:
+        github_token = settings.github_token.strip() or None
+
+    service = AutoFixService()
+    result = await service.generate_fix(
+        finding=finding,
+        scan=scan,
+        github_token=github_token,
+        create_pr=payload.create_pr,
+        regenerate=payload.regenerate,
+    )
+
+    now = datetime.now(timezone.utc)
+    finding.fix_status = result.status
+    finding.fix_error = result.error
+    finding.fix_generated_at = now
+    if result.patch is not None:
+        finding.fix_patch = result.patch
+    if result.summary is not None:
+        finding.fix_summary = result.summary
+    if result.confidence is not None:
+        finding.fix_confidence = result.confidence
+    if result.pr_url is not None:
+        finding.fix_pr_url = result.pr_url
+    if result.branch is not None:
+        finding.fix_branch = result.branch
+
+    db.add(finding)
+    db.commit()
+    db.refresh(finding)
+
+    background_tasks.add_task(
+        sio.emit,
+        "finding.updated",
+        FindingRead.model_validate(finding).model_dump(mode="json"),
+    )
+
+    return AutoFixResponse(
+        status=result.status,
+        patch=result.patch,
+        summary=result.summary,
+        confidence=result.confidence,
+        pr_url=result.pr_url,
+        branch=result.branch,
+        error=result.error,
+        finding=FindingRead.model_validate(finding),
+    )
 
 
 
