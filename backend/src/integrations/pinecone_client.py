@@ -2,10 +2,28 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
-from pinecone import Pinecone, ServerlessSpec
-from sentence_transformers import SentenceTransformer
-
 from ..config import get_settings
+
+Pinecone = None
+ServerlessSpec = None
+SentenceTransformer = None
+
+
+def _load_pinecone() -> None:
+    global Pinecone, ServerlessSpec
+    if Pinecone is None or ServerlessSpec is None:
+        from pinecone import Pinecone as _Pinecone, ServerlessSpec as _ServerlessSpec
+
+        Pinecone = _Pinecone
+        ServerlessSpec = _ServerlessSpec
+
+
+def _load_encoder() -> None:
+    global SentenceTransformer
+    if SentenceTransformer is None:
+        from sentence_transformers import SentenceTransformer as _SentenceTransformer
+
+        SentenceTransformer = _SentenceTransformer
 
 
 class PineconeService:
@@ -14,6 +32,9 @@ class PineconeService:
         api_key = settings.pinecone_api_key
         if not api_key:
             raise RuntimeError("PINECONE_API_KEY is not set")
+
+        _load_pinecone()
+        _load_encoder()
 
         self.pc = Pinecone(api_key=api_key)
         self.encoder = SentenceTransformer("all-MiniLM-L6-v2")

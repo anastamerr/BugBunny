@@ -2,16 +2,18 @@ from __future__ import annotations
 
 import asyncio
 import uuid
-from typing import List, Optional
-
-from ...integrations.pinecone_client import PineconeService
+from typing import TYPE_CHECKING, List, Optional
 from .types import FindingGroup, TriagedFinding
+
+
+if TYPE_CHECKING:
+    from ...integrations.pinecone_client import PineconeService
 
 
 class FindingAggregator:
     def __init__(
         self,
-        pinecone: Optional[PineconeService] = None,
+        pinecone: Optional["PineconeService"] = None,
         duplicate_threshold: float = 0.9,
     ) -> None:
         self.pinecone = pinecone

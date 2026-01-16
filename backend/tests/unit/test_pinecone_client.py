@@ -2,9 +2,10 @@ import pytest
 from unittest.mock import MagicMock, patch
 
 
+@patch("src.integrations.pinecone_client.ServerlessSpec")
 @patch("src.integrations.pinecone_client.SentenceTransformer")
 @patch("src.integrations.pinecone_client.Pinecone")
-def test_embed_text_returns_list(mock_pc_cls, mock_encoder_cls, monkeypatch):
+def test_embed_text_returns_list(mock_pc_cls, mock_encoder_cls, mock_spec_cls, monkeypatch):
     monkeypatch.setenv("PINECONE_API_KEY", "test-key")
     from src.config import get_settings
 
@@ -24,4 +25,3 @@ def test_embed_text_returns_list(mock_pc_cls, mock_encoder_cls, monkeypatch):
     service = PineconeService()
     vec = service.embed_text("hello")
     assert vec == [0.1, 0.2]
-

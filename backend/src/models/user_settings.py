@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 import uuid
 
 from sqlalchemy import Boolean, Column, DateTime, JSON, Text
@@ -19,10 +19,12 @@ class UserSettings(Base):
     enable_scan_pr = Column(Boolean, nullable=False, default=True)
     enable_issue_ingest = Column(Boolean, nullable=False, default=True)
     enable_issue_comment_ingest = Column(Boolean, nullable=False, default=True)
-    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    created_at = Column(
+        DateTime, nullable=False, default=lambda: datetime.now(timezone.utc)
+    )
     updated_at = Column(
         DateTime,
         nullable=False,
-        default=datetime.utcnow,
-        onupdate=datetime.utcnow,
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
     )

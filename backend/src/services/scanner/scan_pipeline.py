@@ -1,12 +1,11 @@
 from __future__ import annotations
 
 import uuid
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 from sqlalchemy.orm import Session
 
 from ...db.session import SessionLocal
-from ...integrations.pinecone_client import PineconeService
 from ...models import Finding, Scan, UserSettings
 from ...realtime import sio
 from .ai_triage import AITriageEngine
@@ -18,6 +17,9 @@ from .dependency_health_scanner import DependencyHealthScanner
 from .dependency_scanner import DependencyScanner
 from .repo_fetcher import RepoFetcher
 from .semgrep_runner import SemgrepRunner
+
+if TYPE_CHECKING:
+    from ...integrations.pinecone_client import PineconeService
 
 
 async def run_scan_pipeline(
@@ -463,8 +465,10 @@ def _update_scan(
     db.refresh(scan)
 
 
-def _get_pinecone() -> Optional[PineconeService]:
+def _get_pinecone() -> Optional["PineconeService"]:
     try:
+        from ...integrations.pinecone_client import PineconeService
+
         return PineconeService()
     except Exception:
         return None
