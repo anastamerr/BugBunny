@@ -45,6 +45,7 @@ class Scan(Base):
         nullable=False,
         default="pending",
     )
+    is_paused = Column(Boolean, nullable=False, default=False)
     trigger = Column(
         Enum("manual", "webhook", name="scan_trigger"),
         nullable=False,

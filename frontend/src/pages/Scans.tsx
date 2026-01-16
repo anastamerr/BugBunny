@@ -53,6 +53,8 @@ const STATUS_CONFIG: Record<Scan["status"], { color: string; bgColor: string; la
   pending: { color: "text-white/50", bgColor: "bg-white/50", label: "Pending", isActive: true },
 };
 
+const PAUSED_CONFIG = { color: "text-amber-300", bgColor: "bg-amber-300", label: "Paused", isActive: false };
+
 // ============================================================================
 // Utility Functions
 // ============================================================================
@@ -122,8 +124,8 @@ function getProgressPercentage(status: Scan["status"]): number {
 // Sub-Components
 // ============================================================================
 
-function StatusBadge({ status }: { status: Scan["status"] }) {
-  const config = STATUS_CONFIG[status];
+function StatusBadge({ status, isPaused }: { status: Scan["status"]; isPaused?: boolean }) {
+  const config = isPaused ? PAUSED_CONFIG : STATUS_CONFIG[status];
   return (
     <div className="flex items-center gap-2">
       <span className={`status-dot ${config.bgColor} ${config.isActive ? "status-dot-pulse" : ""}`} />
@@ -151,9 +153,9 @@ function ScanTypeBadge({ type }: { type: ScanType }) {
   return <div className="flex items-center gap-1">{badges}</div>;
 }
 
-function ProgressBar({ status }: { status: Scan["status"] }) {
+function ProgressBar({ status, isPaused }: { status: Scan["status"]; isPaused?: boolean }) {
   const percentage = getProgressPercentage(status);
-  const config = STATUS_CONFIG[status];
+  const config = isPaused ? PAUSED_CONFIG : STATUS_CONFIG[status];
 
   if (status === "completed" || status === "failed") return null;
 
@@ -200,18 +202,32 @@ function EmptyState({ onCreateScan }: { onCreateScan: () => void }) {
   );
 }
 
-function ScanCard({ scan }: { scan: Scan }) {
+function ScanCard({
+  scan,
+  onDelete,
+  isDeleting,
+}: {
+  scan: Scan;
+  onDelete?: (scanId: string) => void;
+  isDeleting?: boolean;
+}) {
   const headline = scan.repo_url ? formatRepoName(scan.repo_url) : scan.target_url || "DAST Scan";
   const { percentage, filtered, total } = calculateNoiseReduction(scan);
-  const isActive = STATUS_CONFIG[scan.status].isActive;
+  const isPaused = Boolean(scan.is_paused);
+  const isActive = isPaused || STATUS_CONFIG[scan.status].isActive;
+  const canDelete =
+    scan.status === "pending" ||
+    scan.is_paused ||
+    scan.status === "completed" ||
+    scan.status === "failed";
 
   return (
     <div className="scan-card">
-      {isActive && <ProgressBar status={scan.status} />}
+      {isActive && <ProgressBar status={scan.status} isPaused={isPaused} />}
 
       <div className="scan-card-header">
         <div className="flex items-center gap-3">
-          <StatusBadge status={scan.status} />
+          <StatusBadge status={scan.status} isPaused={isPaused} />
           <ScanTypeBadge type={scan.scan_type} />
           {scan.trigger === "webhook" && (
             <span className="badge border-amber-400/30 bg-amber-400/10 text-amber-300">
@@ -287,6 +303,30 @@ function ScanCard({ scan }: { scan: Scan }) {
                 <span className="text-sm font-medium">No issues found</span>
               </div>
             )}
+
+            {onDelete ? (
+              <button
+                type="button"
+                className="btn-ghost text-rose-300 hover:text-rose-200"
+                onClick={() => {
+                  if (!canDelete || isDeleting) return;
+                  const confirmed = window.confirm(
+                    "Delete this scan and all its findings? This cannot be undone.",
+                  );
+                  if (confirmed) {
+                    onDelete(scan.id);
+                  }
+                }}
+                disabled={!canDelete || isDeleting}
+                title={
+                  canDelete
+                    ? "Delete this scan and its findings"
+                    : "Delete is available when pending, paused, completed, or failed"
+                }
+              >
+                {isDeleting ? "Deleting..." : "Delete"}
+              </button>
+            ) : null}
 
             <Link
               to={`/scans/${scan.id}`}
@@ -603,6 +643,8 @@ export default function Scans() {
   const [showNewScan, setShowNewScan] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<Scan["status"] | "all">("all");
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   // Data Fetching
   const { data, isLoading, error } = useQuery({
@@ -691,6 +733,25 @@ export default function Scans() {
   const injectDemo = useMutation({
     mutationFn: () => demoApi.injectScan(),
     onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["scans"] });
+    },
+  });
+
+  const deleteScan = useMutation({
+    mutationFn: async (scanId: string) => {
+      await scansApi.delete(scanId);
+    },
+    onMutate: (scanId) => {
+      setDeleteError(null);
+      setDeletingId(scanId);
+    },
+    onError: (err) => {
+      setDeleteError(
+        err instanceof Error ? err.message : "Failed to delete scan.",
+      );
+    },
+    onSettled: async () => {
+      setDeletingId(null);
       await queryClient.invalidateQueries({ queryKey: ["scans"] });
     },
   });
@@ -852,6 +913,15 @@ export default function Scans() {
         </div>
       )}
 
+      {deleteError && (
+        <div className="surface-solid flex items-center gap-3 p-4 text-rose-200">
+          <svg className="h-5 w-5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
+          </svg>
+          <span className="text-sm">{deleteError}</span>
+        </div>
+      )}
+
       {/* Filters & Search */}
       {scans.length > 0 && (
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -905,7 +975,12 @@ export default function Scans() {
       {!isLoading && scans.length > 0 && (
         <div className="space-y-4">
           {scans.map((scan) => (
-            <ScanCard key={scan.id} scan={scan} />
+            <ScanCard
+              key={scan.id}
+              scan={scan}
+              onDelete={(scanId) => deleteScan.mutate(scanId)}
+              isDeleting={deleteScan.isPending && deletingId === scan.id}
+            />
           ))}
         </div>
       )}

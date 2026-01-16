@@ -138,6 +138,7 @@ class ScanUpdate(BaseModel):
     status: Optional[ScanStatus] = None
     scan_type: Optional[ScanType] = None
     dependency_health_enabled: Optional[bool] = None
+    is_paused: Optional[bool] = None
     target_url: Optional[str] = None
     trigger: Optional[ScanTrigger] = None
     total_findings: Optional[int] = None
@@ -165,6 +166,7 @@ class ScanRead(BaseModel):
     dependency_health_enabled: bool
     target_url: Optional[str] = None
     status: ScanStatus
+    is_paused: bool
     trigger: ScanTrigger
     total_findings: int
     filtered_findings: int

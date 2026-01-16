@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 
 import { scansApi } from "../api/scans";
 import { BackLink } from "../components/BackLink";
@@ -66,6 +66,9 @@ export default function ScanDetail() {
   >({});
   const [isDownloadingReport, setIsDownloadingReport] = useState(false);
   const [reportError, setReportError] = useState<string | null>(null);
+  const [pauseError, setPauseError] = useState<string | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const navigate = useNavigate();
 
   const {
     data: scan,
@@ -150,6 +153,46 @@ export default function ScanDetail() {
     onSettled: async () => {
       setAutoFixing(null);
       await queryClient.invalidateQueries({ queryKey: ["findings"] });
+    },
+  });
+
+  const pauseScan = useMutation({
+    mutationFn: async (action: "pause" | "resume") => {
+      if (!id) throw new Error("Missing scan id.");
+      return action === "pause" ? scansApi.pause(id) : scansApi.resume(id);
+    },
+    onMutate: () => {
+      setPauseError(null);
+    },
+    onError: (err) => {
+      setPauseError(
+        err instanceof Error ? err.message : "Failed to update scan state.",
+      );
+    },
+    onSettled: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["scans"] });
+      if (id) {
+        await queryClient.invalidateQueries({ queryKey: ["scans", id] });
+      }
+    },
+  });
+
+  const deleteScan = useMutation({
+    mutationFn: async () => {
+      if (!id) throw new Error("Missing scan id.");
+      await scansApi.delete(id);
+    },
+    onMutate: () => {
+      setDeleteError(null);
+    },
+    onError: (err) => {
+      setDeleteError(
+        err instanceof Error ? err.message : "Failed to delete scan.",
+      );
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["scans"] });
+      navigate("/scans");
     },
   });
 
@@ -347,6 +390,18 @@ export default function ScanDetail() {
     );
   }
 
+  const isPaused = Boolean(scan.is_paused);
+  const canPause =
+    !isPaused &&
+    ["pending", "cloning", "scanning", "analyzing"].includes(scan.status);
+  const canResume =
+    isPaused &&
+    ["pending", "cloning", "scanning", "analyzing"].includes(scan.status);
+  const canDelete =
+    scan.status === "pending" ||
+    isPaused ||
+    ["completed", "failed"].includes(scan.status);
+
   return (
     <div className="space-y-6">
       <BackLink to="/scans" label="Back to Scans" />
@@ -355,6 +410,11 @@ export default function ScanDetail() {
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
               <span className={statusClass(scan.status)}>{scan.status}</span>
+              {isPaused ? (
+                <span className="badge border-amber-400/40 bg-amber-400/10 text-amber-200">
+                  paused
+                </span>
+              ) : null}
               <span className="badge">{scan.trigger}</span>
               {scan.scan_type !== "dast" ? (
                 <span className="badge">SAST</span>
@@ -405,6 +465,50 @@ export default function ScanDetail() {
             <Link to={`/chat?scan_id=${scan.id}`} className="btn-primary">
               Ask AI
             </Link>
+            <button
+              type="button"
+              className="btn-ghost"
+              onClick={() =>
+                pauseScan.mutate(isPaused ? "resume" : "pause")
+              }
+              disabled={
+                pauseScan.isPending || (!canPause && !canResume)
+              }
+              title={
+                canPause
+                  ? "Pause scan processing"
+                  : canResume
+                    ? "Resume scan processing"
+                    : "Pause/resume available while scan is active"
+              }
+            >
+              {pauseScan.isPending
+                ? "Updating..."
+                : isPaused
+                  ? "Resume"
+                  : "Pause"}
+            </button>
+            <button
+              type="button"
+              className="btn-ghost text-rose-300 hover:text-rose-200"
+              onClick={() => {
+                if (!canDelete || deleteScan.isPending) return;
+                const confirmed = window.confirm(
+                  "Delete this scan and all its findings? This cannot be undone.",
+                );
+                if (confirmed) {
+                  deleteScan.mutate();
+                }
+              }}
+              disabled={!canDelete || deleteScan.isPending}
+              title={
+                canDelete
+                  ? "Delete this scan and its findings"
+                  : "Delete is available when pending, paused, completed, or failed"
+              }
+            >
+              {deleteScan.isPending ? "Deleting..." : "Delete"}
+            </button>
             <button
               type="button"
               className="inline-flex items-center gap-2 rounded-pill border border-neon-mint/30 bg-neon-mint/10 px-4 py-2 text-sm font-semibold text-neon-mint transition-all duration-200 hover:border-neon-mint/50 hover:bg-neon-mint/20 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:border-neon-mint/30 disabled:hover:bg-neon-mint/10"
@@ -481,7 +585,9 @@ export default function ScanDetail() {
           <div className="mt-4">
             <div className="flex items-center justify-between text-xs text-white/60">
               <span>Progress</span>
-              <span className="capitalize">{scan.status}</span>
+              <span className="capitalize">
+                {isPaused ? "paused" : scan.status}
+              </span>
             </div>
             <div className="mt-2 h-2 w-full rounded-pill bg-white/10">
               <div
@@ -599,6 +705,18 @@ export default function ScanDetail() {
       {reportError ? (
         <div className="surface-solid p-4 text-sm text-rose-200">
           {reportError}
+        </div>
+      ) : null}
+
+      {pauseError ? (
+        <div className="surface-solid p-4 text-sm text-rose-200">
+          {pauseError}
+        </div>
+      ) : null}
+
+      {deleteError ? (
+        <div className="surface-solid p-4 text-sm text-rose-200">
+          {deleteError}
         </div>
       ) : null}
 

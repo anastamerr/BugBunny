@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import uuid
 from typing import TYPE_CHECKING, Optional
 
@@ -20,6 +21,14 @@ from .semgrep_runner import SemgrepRunner
 
 if TYPE_CHECKING:
     from ...integrations.pinecone_client import PineconeService
+
+
+PAUSE_POLL_SECONDS = 2.0
+TRIAGE_BATCH_SIZE = 8
+
+
+class ScanCancelled(RuntimeError):
+    pass
 
 
 async def run_scan_pipeline(
@@ -70,6 +79,7 @@ async def run_scan_pipeline(
             if not repo_url:
                 raise RuntimeError("repo_url is required for SAST scans")
 
+            await _wait_for_resume(db, scan_id)
             _update_scan(db, scan_id, status="cloning")
             await sio.emit(
                 "scan.updated",
@@ -88,6 +98,7 @@ async def run_scan_pipeline(
                     "scan.updated",
                     {"scan_id": str(scan_id), "branch": resolved_branch},
                 )
+            await _wait_for_resume(db, scan_id)
             _update_scan(db, scan_id, status="scanning")
             await sio.emit(
                 "scan.updated",
@@ -108,6 +119,7 @@ async def run_scan_pipeline(
             )
             raw_findings = await runner.scan(repo_path, languages)
 
+            await _wait_for_resume(db, scan_id)
             _update_scan(
                 db,
                 scan_id,
@@ -120,14 +132,21 @@ async def run_scan_pipeline(
             )
 
             contexts = [extractor.extract(repo_path, finding) for finding in raw_findings]
-            triaged = await triage.triage_batch(list(zip(raw_findings, contexts)))
+            triage_inputs = list(zip(raw_findings, contexts))
+            triaged = []
+            for offset in range(0, len(triage_inputs), TRIAGE_BATCH_SIZE):
+                await _wait_for_resume(db, scan_id)
+                batch = triage_inputs[offset : offset + TRIAGE_BATCH_SIZE]
+                triaged.extend(await triage.triage_batch(batch))
             # Apply dedupe and update Pinecone index for actionable findings.
             triaged = await aggregator.process(triaged)
 
             if dependency_scanner.is_available():
+                await _wait_for_resume(db, scan_id)
                 dependency_findings = await dependency_scanner.scan(repo_path)
             if dependency_health_enabled:
                 try:
+                    await _wait_for_resume(db, scan_id)
                     dependency_health_findings = await dependency_health_scanner.scan(
                         repo_path
                     )
@@ -137,6 +156,7 @@ async def run_scan_pipeline(
                     )
 
         if scan_type in {"dast", "both"} and target_url:
+            await _wait_for_resume(db, scan_id)
             _update_scan(db, scan_id, status="scanning")
             await sio.emit(
                 "scan.updated",
@@ -179,6 +199,7 @@ async def run_scan_pipeline(
             )
             _update_scan(db, scan_id, error_message=error_message)
 
+        await _wait_for_resume(db, scan_id)
         _update_scan(db, scan_id, status="analyzing")
         await sio.emit(
             "scan.updated",
@@ -410,6 +431,8 @@ async def run_scan_pipeline(
                 "dast_findings": len(dast_findings),
             },
         )
+    except ScanCancelled:
+        return
     except Exception as exc:
         _update_scan(db, scan_id, status="failed", error_message=str(exc))
         await sio.emit(
@@ -420,6 +443,17 @@ async def run_scan_pipeline(
         if repo_path:
             await fetcher.cleanup(repo_path)
         db.close()
+
+
+async def _wait_for_resume(db: Session, scan_id: uuid.UUID) -> None:
+    while True:
+        scan = db.query(Scan).filter(Scan.id == scan_id).first()
+        if not scan:
+            raise ScanCancelled("Scan was deleted.")
+        if not scan.is_paused:
+            return
+        await asyncio.sleep(PAUSE_POLL_SECONDS)
+        db.expire_all()
 
 
 def _update_scan(

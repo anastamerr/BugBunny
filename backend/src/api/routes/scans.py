@@ -163,6 +163,63 @@ def get_scan(
     return scan
 
 
+@router.post("/{scan_id}/pause", response_model=ScanRead)
+def pause_scan(
+    scan_id: str,
+    background_tasks: BackgroundTasks,
+    current_user: CurrentUser = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> Scan:
+    scan = get_scan(scan_id, current_user=current_user, db=db)
+    if scan.status in {"completed", "failed"}:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Completed scans cannot be paused.",
+        )
+    if scan.is_paused:
+        return scan
+    scan.is_paused = True
+    db.add(scan)
+    db.commit()
+    db.refresh(scan)
+    background_tasks.add_task(
+        sio.emit,
+        "scan.updated",
+        ScanRead.model_validate(scan).model_dump(mode="json"),
+    )
+    return scan
+
+
+@router.post("/{scan_id}/resume", response_model=ScanRead)
+def resume_scan(
+    scan_id: str,
+    background_tasks: BackgroundTasks,
+    current_user: CurrentUser = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> Scan:
+    scan = get_scan(scan_id, current_user=current_user, db=db)
+    if scan.status in {"completed", "failed"}:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Completed scans cannot be resumed.",
+        )
+    if not scan.is_paused:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Scan is not paused.",
+        )
+    scan.is_paused = False
+    db.add(scan)
+    db.commit()
+    db.refresh(scan)
+    background_tasks.add_task(
+        sio.emit,
+        "scan.updated",
+        ScanRead.model_validate(scan).model_dump(mode="json"),
+    )
+    return scan
+
+
 @router.get("/{scan_id}/report")
 def get_scan_report(
     scan_id: str,
@@ -288,6 +345,41 @@ def delete_scan_report(
         scan.report_url = None
         db.add(scan)
         db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.delete(
+    "/{scan_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_model=None,
+    response_class=Response,
+)
+def delete_scan(
+    scan_id: str,
+    background_tasks: BackgroundTasks,
+    current_user: CurrentUser = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> Response:
+    scan = get_scan(scan_id, current_user=current_user, db=db)
+    if (
+        scan.status not in {"pending", "completed", "failed"}
+        and not scan.is_paused
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Active scans cannot be deleted unless paused.",
+        )
+    delete_pdf(str(scan.id))
+    db.query(Finding).filter(Finding.scan_id == scan.id).delete(
+        synchronize_session=False
+    )
+    db.delete(scan)
+    db.commit()
+    background_tasks.add_task(
+        sio.emit,
+        "scan.deleted",
+        {"scan_id": str(scan.id)},
+    )
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 

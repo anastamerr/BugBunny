@@ -30,6 +30,7 @@ export interface Scan {
   dependency_health_enabled?: boolean;
   target_url?: string | null;
   status: "pending" | "cloning" | "scanning" | "analyzing" | "completed" | "failed";
+  is_paused: boolean;
   trigger: "manual" | "webhook";
   total_findings: number;
   filtered_findings: number;

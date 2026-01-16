@@ -35,6 +35,7 @@ export function RealtimeListener() {
     socket.on("scan.updated", invalidateScans);
     socket.on("scan.completed", handleScanCompleted);
     socket.on("scan.failed", invalidateScans);
+    socket.on("scan.deleted", invalidateScans);
     socket.on("finding.updated", invalidateFindings);
     socket.on("connect", () => setRealtimeStatus("connected"));
     socket.on("disconnect", () => setRealtimeStatus("disconnected"));
@@ -53,10 +54,11 @@ export function RealtimeListener() {
     return () => {
       socket.off("bug.created", invalidateBugs);
       socket.off("bug.updated", invalidateBugs);
-      socket.off("scan.created", invalidateScans);
-      socket.off("scan.updated", invalidateScans);
-      socket.off("scan.completed", handleScanCompleted);
-      socket.off("scan.failed", invalidateScans);
+    socket.off("scan.created", invalidateScans);
+    socket.off("scan.updated", invalidateScans);
+    socket.off("scan.completed", handleScanCompleted);
+    socket.off("scan.failed", invalidateScans);
+    socket.off("scan.deleted", invalidateScans);
       socket.off("finding.updated", invalidateFindings);
       socket.off("connect");
       socket.off("disconnect");

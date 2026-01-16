@@ -158,6 +158,7 @@ export default function Dashboard() {
                 scan.scan_type === "dast"
                   ? scan.target_url || "DAST"
                   : scan.branch;
+              const scanState = scan.is_paused ? "paused" : scan.status;
 
               return (
                 <div
@@ -169,7 +170,7 @@ export default function Dashboard() {
                       {headline}
                     </div>
                     <div className="mt-1 text-xs text-white/60">
-                      {scanScope} {"->"} {scan.status}
+                      {scanScope} {"->"} {scanState}
                     </div>
                   </div>
                   <Link to={`/scans/${scan.id}`} className="btn-ghost">

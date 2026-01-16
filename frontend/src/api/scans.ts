@@ -25,6 +25,20 @@ export const scansApi = {
     return data;
   },
 
+  pause: async (scanId: string) => {
+    const { data } = await api.post<Scan>(`/api/scans/${scanId}/pause`);
+    return data;
+  },
+
+  resume: async (scanId: string) => {
+    const { data } = await api.post<Scan>(`/api/scans/${scanId}/resume`);
+    return data;
+  },
+
+  delete: async (scanId: string) => {
+    await api.delete(`/api/scans/${scanId}`);
+  },
+
   getFindings: async (
     scanId: string,
     params?: { include_false_positives?: boolean },
