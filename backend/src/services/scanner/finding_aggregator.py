@@ -19,12 +19,13 @@ class FindingAggregator:
 
     async def process(self, findings: List[TriagedFinding]) -> List[TriagedFinding]:
         filtered = self._filter_false_positives(findings)
+        false_positives = [finding for finding in findings if finding.is_false_positive]
         _groups = self._group_related(filtered)
         deduped = await self._deduplicate(filtered)
         for finding in deduped:
             finding.priority_score = self.calculate_priority(finding)
         return sorted(
-            deduped,
+            deduped + false_positives,
             key=lambda item: item.priority_score or 0,
             reverse=True,
         )

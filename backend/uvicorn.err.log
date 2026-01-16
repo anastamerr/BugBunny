@@ -1,18 +1,49 @@
-C:\Users\anoos\Downloads\unifonic\backend\src\main.py:52: DeprecationWarning: 
-        on_event is deprecated, use lifespan event handlers instead.
-
-        Read more about it in the
-        [FastAPI docs for Lifespan Events](https://fastapi.tiangolo.com/advanced/events/).
-        
-  @app.on_event("startup")
-C:\Users\anoos\Downloads\unifonic\backend\.venv\lib\site-packages\fastapi\applications.py:4580: DeprecationWarning: 
-        on_event is deprecated, use lifespan event handlers instead.
-
-        Read more about it in the
-        [FastAPI docs for Lifespan Events](https://fastapi.tiangolo.com/advanced/events/).
-        
-  return self.router.on_event(event_type)
-INFO:     Started server process [18900]
+INFO:     Started server process [86182]
 INFO:     Waiting for application startup.
 INFO:     Application startup complete.
 INFO:     Uvicorn running on http://127.0.0.1:8000 (Press CTRL+C to quit)
+INFO:     127.0.0.1:55240 - "WebSocket /ws/?EIO=4&transport=websocket" [accepted]
+INFO:     connection open
+INFO:     127.0.0.1:55241 - "WebSocket /ws/?EIO=4&transport=websocket" [accepted]
+INFO:     connection open
+INFO:     127.0.0.1:55242 - "WebSocket /ws/?EIO=4&transport=websocket" [accepted]
+INFO:     connection open
+INFO:     127.0.0.1:55243 - "WebSocket /ws/?EIO=4&transport=websocket" [accepted]
+INFO:     connection open
+INFO:     connection closed
+INFO:     connection closed
+INFO:     connection closed
+'(ReadTimeoutError("HTTPSConnectionPool(host='huggingface.co', port=443): Read timed out. (read timeout=10)"), '(Request ID: db34aac8-b49e-42db-9df2-f42b429deeaf)')' thrown while requesting HEAD https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/tokenizer_config.json
+Retrying in 1s [Retry 1/5].
+'(ReadTimeoutError("HTTPSConnectionPool(host='huggingface.co', port=443): Read timed out. (read timeout=10)"), '(Request ID: d8ebfeaf-6229-46d6-a3a1-290a59b62ddf)')' thrown while requesting HEAD https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/tokenizer_config.json
+Retrying in 2s [Retry 2/5].
+INFO:     connection closed
+INFO:     127.0.0.1:52974 - "WebSocket /ws/?EIO=4&transport=websocket" [accepted]
+INFO:     connection open
+INFO:     connection closed
+INFO:     127.0.0.1:53762 - "WebSocket /ws/?EIO=4&transport=websocket" [accepted]
+INFO:     connection open
+INFO:     connection closed
+INFO:     127.0.0.1:54334 - "WebSocket /ws/?EIO=4&transport=websocket" [accepted]
+INFO:     connection open
+INFO:     connection closed
+INFO:     127.0.0.1:54952 - "WebSocket /ws/?EIO=4&transport=websocket" [accepted]
+INFO:     connection open
+INFO:     connection closed
+INFO:     127.0.0.1:55560 - "WebSocket /ws/?EIO=4&transport=websocket" [accepted]
+INFO:     connection open
+INFO:     connection closed
+INFO:     127.0.0.1:57164 - "WebSocket /ws/?EIO=4&transport=websocket" [accepted]
+INFO:     connection open
+INFO:     connection closed
+INFO:     127.0.0.1:57803 - "WebSocket /ws/?EIO=4&transport=websocket" [accepted]
+INFO:     connection open
+INFO:     connection closed
+INFO:     127.0.0.1:58421 - "WebSocket /ws/?EIO=4&transport=websocket" [accepted]
+INFO:     connection open
+INFO:     connection closed
+INFO:     127.0.0.1:58985 - "WebSocket /ws/?EIO=4&transport=websocket" [accepted]
+INFO:     connection open
+INFO:     connection closed
+INFO:     127.0.0.1:59615 - "WebSocket /ws/?EIO=4&transport=websocket" [accepted]
+INFO:     connection open

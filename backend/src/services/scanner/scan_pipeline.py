@@ -119,8 +119,8 @@ async def run_scan_pipeline(
 
             contexts = [extractor.extract(repo_path, finding) for finding in raw_findings]
             triaged = await triage.triage_batch(list(zip(raw_findings, contexts)))
-            # Update priority scores and Pinecone dedupe index.
-            await aggregator.process(triaged)
+            # Apply dedupe and update Pinecone index for actionable findings.
+            triaged = await aggregator.process(triaged)
 
             if dependency_scanner.is_available():
                 dependency_findings = await dependency_scanner.scan(repo_path)

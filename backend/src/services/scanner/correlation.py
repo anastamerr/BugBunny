@@ -10,13 +10,13 @@ def correlate_findings(
     sast_findings: List[TriagedFinding],
     dast_findings: List[DynamicFinding],
 ) -> Tuple[List[TriagedFinding], List[DynamicFinding]]:
-    matched_templates: set[str] = set()
+    matched_dast_keys: set[str] = set()
 
     for finding in sast_findings:
         match = _find_match(finding, dast_findings)
         if not match:
             continue
-        matched_templates.add(match.template_id)
+        matched_dast_keys.add(_dast_key(match))
         finding.confirmed_exploitable = True
         finding.is_false_positive = False
         finding.ai_confidence = min(1.0, finding.ai_confidence + 0.2)
@@ -28,7 +28,7 @@ def correlate_findings(
         finding.dast_cwe_ids = match.cwe_ids
 
     unmatched_dast = [
-        item for item in dast_findings if item.template_id not in matched_templates
+        item for item in dast_findings if _dast_key(item) not in matched_dast_keys
     ]
     return sast_findings, unmatched_dast
 
@@ -53,6 +53,13 @@ def _find_match(
             return dast
 
     return None
+
+
+def _dast_key(finding: DynamicFinding) -> str:
+    matched_at = (finding.matched_at or "").strip()
+    endpoint = (finding.endpoint or "").strip()
+    location = matched_at or endpoint
+    return f"{finding.template_id}::{location}"
 
 
 def _extract_cwe(value: str | None) -> str | None:
