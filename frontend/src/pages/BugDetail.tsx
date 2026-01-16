@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useParams } from "react-router-dom";
 
 import { bugsApi } from "../api/bugs";
+import { BackLink } from "../components/BackLink";
 import type { BugReport } from "../types";
 
 type GitHubComment = {
@@ -120,6 +121,7 @@ export default function BugDetail() {
   if (!id) {
     return (
       <div className="space-y-6">
+        <BackLink to="/bugs" label="Back to Bugs" />
         <div className="surface-solid p-6">
           <h1 className="text-2xl font-extrabold tracking-tight text-white">Bug</h1>
           <p className="mt-1 text-sm text-white/60">Missing bug id.</p>
@@ -131,6 +133,7 @@ export default function BugDetail() {
   if (isLoading) {
     return (
       <div className="space-y-6">
+        <BackLink to="/bugs" label="Back to Bugs" />
         <div className="surface-solid p-6">
           <h1 className="text-2xl font-extrabold tracking-tight text-white">Bug</h1>
           <p className="mt-1 text-sm text-white/60">Loading...</p>
@@ -142,6 +145,7 @@ export default function BugDetail() {
   if (error || !bug) {
     return (
       <div className="space-y-6">
+        <BackLink to="/bugs" label="Back to Bugs" />
         <div className="surface-solid p-6">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
@@ -164,6 +168,7 @@ export default function BugDetail() {
 
   return (
     <div className="space-y-6">
+      <BackLink to="/bugs" label="Back to Bugs" />
       <div className="surface-solid p-6">
         <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
           <div className="min-w-0">

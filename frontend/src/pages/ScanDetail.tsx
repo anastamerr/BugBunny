@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useParams } from "react-router-dom";
 
 import { scansApi } from "../api/scans";
+import { BackLink } from "../components/BackLink";
 import { FindingCard } from "../components/FindingCard";
 import type { Finding, Scan } from "../types";
 
@@ -317,6 +318,7 @@ export default function ScanDetail() {
   if (scanError || !scan) {
     return (
       <div className="space-y-6">
+        <BackLink to="/scans" label="Back to Scans" />
         <div className="surface-solid p-6">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
@@ -349,6 +351,7 @@ export default function ScanDetail() {
 
   return (
     <div className="space-y-6">
+      <BackLink to="/scans" label="Back to Scans" />
       <div className="surface-solid p-6">
         <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
           <div className="min-w-0">
