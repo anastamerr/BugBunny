@@ -6,6 +6,7 @@ import {
   MessagesSquare,
   Radar,
   Settings,
+  LogOut,
 } from "lucide-react";
 
 import { RealtimeListener } from "../realtime/RealtimeListener";
@@ -93,9 +94,10 @@ export function Layout() {
             </div>
             <button
               type="button"
-              className="btn-ghost mt-3 w-full justify-center text-xs"
+              className="btn-ghost mt-3 w-full justify-center gap-2 text-xs"
               onClick={() => signOut()}
             >
+              <LogOut className="h-4 w-4" />
               Sign out
             </button>
           </div>
