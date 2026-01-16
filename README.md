@@ -67,6 +67,7 @@ python -m venv .venv
 Copy-Item .env.example .env
 .\.venv\Scripts\python -m alembic upgrade head
 .\.venv\Scripts\python -m uvicorn src.main:asgi_app --port 8000
+# Important: use `asgi_app` to serve Socket.IO at /ws.
 ```
 
 Frontend:

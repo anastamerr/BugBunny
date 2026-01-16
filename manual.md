@@ -60,6 +60,7 @@ cd backend
 cd backend
 .\.venv\Scripts\python -m uvicorn src.main:asgi_app --port 8000
 ```
+Note: use `asgi_app` (not `app`) so Socket.IO is served at `/ws`.
 
 Quick health check:
 
