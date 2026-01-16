@@ -1,6 +1,7 @@
 import axios from "axios";
 
 import { supabase } from "../lib/supabase";
+import { toApiError } from "./errors";
 
 export const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:8000";
 
@@ -20,3 +21,7 @@ api.interceptors.request.use(async (config) => {
   return config;
 });
 
+api.interceptors.response.use(
+  (response) => response,
+  (error) => Promise.reject(toApiError(error)),
+);

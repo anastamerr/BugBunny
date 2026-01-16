@@ -8,6 +8,7 @@ import remarkGfm from "remark-gfm";
 
 import { bugsApi } from "../api/bugs";
 import { chatApi } from "../api/chat";
+import { toApiErrorFromResponse } from "../api/errors";
 import { scansApi } from "../api/scans";
 import type { BugReport, Finding } from "../types";
 
@@ -410,7 +411,7 @@ export default function Chat() {
     try {
       const response = await chatApi.stream(buildPayload(text), controller.signal);
       if (!response.ok) {
-        throw new Error("Failed to stream response.");
+        throw await toApiErrorFromResponse(response);
       }
       await readStream(response);
     } catch (err: unknown) {
