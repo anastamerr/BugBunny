@@ -41,7 +41,7 @@ class Settings(BaseSettings):
     supabase_jwt_issuer: Optional[str] = None
     supabase_url: Optional[str] = None
     supabase_service_key: Optional[str] = None
-    zap_docker_image: str = "owasp/zap2docker-stable"
+    zap_docker_image: str = "ghcr.io/zaproxy/zaproxy:stable"
     zap_api_key: Optional[str] = None
     zap_timeout_seconds: int = 300
     zap_request_timeout_seconds: Optional[int] = None
