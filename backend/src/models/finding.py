@@ -69,6 +69,23 @@ class Finding(Base):
     cwe_ids = Column(JSON, nullable=True)
     confirmed_exploitable = Column(Boolean, nullable=False, default=False)
 
+    # DAST verification fields
+    dast_verified = Column(Boolean, nullable=False, default=False)
+    dast_verification_status = Column(
+        Enum(
+            "not_run",
+            "confirmed_exploitable",
+            "attempted_not_reproduced",
+            "blocked_auth_required",
+            "blocked_rate_limit",
+            "inconclusive_mapping",
+            "error_timeout",
+            "error_tooling",
+            name="dast_verification_status",
+        ),
+        nullable=True,
+    )
+
     # Reachability analysis fields
     is_reachable = Column(Boolean, nullable=False, default=True)
     reachability_score = Column(Float, nullable=True, default=1.0)

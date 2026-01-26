@@ -14,6 +14,7 @@ from .correlation import correlate_findings
 from .context_extractor import ContextExtractor
 from .finding_aggregator import FindingAggregator
 from .dast_runner import DASTRunner
+from .targeted_dast_runner import TargetedDASTRunner
 from .dependency_health_scanner import DependencyHealthScanner
 from .dependency_scanner import DependencyScanner
 from .repo_fetcher import RepoFetcher
@@ -64,6 +65,10 @@ async def run_scan_pipeline(
 
         scan_type = (scan_type or "sast").lower()
         target_url = target_url or (scan.target_url if scan else None)
+        targeted_dast_runner = TargetedDASTRunner(
+            auth_headers=scan.dast_auth_headers if scan else None,
+            cookies=scan.dast_cookies if scan else None,
+        )
 
         triaged = []
         dast_findings = []
@@ -155,6 +160,10 @@ async def run_scan_pipeline(
                         f"Dependency health error: {exc}"
                     )
 
+        # Track which findings were tested by targeted DAST
+        targeted_dast_results = []
+        dast_confirmed_count = 0
+
         if scan_type in {"dast", "both"} and target_url:
             await _wait_for_resume(db, scan_id)
             _update_scan(db, scan_id, status="scanning")
@@ -162,13 +171,52 @@ async def run_scan_pipeline(
                 "scan.updated",
                 {"scan_id": str(scan_id), "status": "scanning", "phase": "DAST"},
             )
+
+            # Run targeted DAST if we have SAST findings to verify
+            if triaged:
+                await sio.emit(
+                    "scan.updated",
+                    {
+                        "scan_id": str(scan_id),
+                        "status": "scanning",
+                        "phase": "DAST",
+                        "message": f"Targeting {len([f for f in triaged if not f.is_false_positive])} SAST findings for verification",
+                    },
+                )
+                targeted_dast_results = await targeted_dast_runner.attack_findings(
+                    target_url,
+                    triaged,
+                    str(repo_path) if repo_path else "",
+                )
+                # Map results back to findings
+                triaged, dast_confirmed_count = targeted_dast_runner.map_results_to_findings(
+                    triaged,
+                    targeted_dast_results,
+                    str(repo_path) if repo_path else "",
+                )
+                if targeted_dast_runner.last_error:
+                    dast_error = f"Targeted DAST error: {targeted_dast_runner.last_error}"
+
+            # Also run blind DAST scan for additional coverage
             if dast_runner.is_available():
                 dast_findings = await dast_runner.scan(target_url)
                 if dast_runner.last_error:
-                    dast_error = f"DAST error: {dast_runner.last_error}"
+                    dast_error = _merge_error_message(
+                        dast_error,
+                        f"DAST error: {dast_runner.last_error}",
+                    ) if dast_error else f"DAST error: {dast_runner.last_error}"
             else:
-                dast_error = "DAST error: Nuclei binary not found."
-            _update_scan(db, scan_id, dast_findings=len(dast_findings))
+                dast_error = _merge_error_message(
+                    dast_error,
+                    "DAST error: Nuclei binary not found.",
+                ) if dast_error else "DAST error: Nuclei binary not found."
+
+            _update_scan(
+                db,
+                scan_id,
+                dast_findings=len(dast_findings),
+                dast_confirmed_count=dast_confirmed_count,
+            )
             if dast_error:
                 error_message = _merge_error_message(
                     scan.error_message if scan else None,
@@ -212,10 +260,23 @@ async def run_scan_pipeline(
 
         triaged, unmatched_dast = correlate_findings(triaged, dast_findings)
 
+        # Build mapping of finding IDs to targeted DAST results
+        dast_result_map = {r.finding_id: r for r in targeted_dast_results}
+
         for item in triaged:
             priority_score = aggregator.calculate_priority(item)
             if item.is_false_positive:
                 priority_score = 0
+
+            # Check if this finding was tested by targeted DAST
+            finding_key = f"{item.rule_id}:{item.file_path}:{item.line_start}"
+            dast_result = dast_result_map.get(finding_key)
+            dast_status = (
+                dast_result.verification_status
+                if dast_result
+                else "not_run"
+            )
+            was_dast_verified = dast_status != "not_run"
 
             db.add(
                 Finding(
@@ -246,6 +307,8 @@ async def run_scan_pipeline(
                     cve_ids=item.dast_cve_ids,
                     cwe_ids=item.dast_cwe_ids,
                     confirmed_exploitable=item.confirmed_exploitable,
+                    dast_verified=was_dast_verified,
+                    dast_verification_status=dast_status,
                     is_reachable=getattr(item, "is_reachable", True),
                     reachability_score=getattr(item, "reachability_score", 1.0),
                     reachability_reason=getattr(item, "reachability_reason", None),
@@ -291,6 +354,7 @@ async def run_scan_pipeline(
                     cve_ids=item.cve_ids,
                     cwe_ids=item.cwe_ids,
                     confirmed_exploitable=True,
+                    dast_verified=True,
                     status="new",
                     priority_score=priority_score,
                 )
@@ -464,6 +528,7 @@ def _update_scan(
     total_findings: Optional[int] = None,
     filtered_findings: Optional[int] = None,
     dast_findings: Optional[int] = None,
+    dast_confirmed_count: Optional[int] = None,
     error_message: Optional[str] = None,
     detected_languages: Optional[list[str]] = None,
     rulesets: Optional[list[str]] = None,
@@ -483,6 +548,8 @@ def _update_scan(
         scan.filtered_findings = filtered_findings
     if dast_findings is not None:
         scan.dast_findings = dast_findings
+    if dast_confirmed_count is not None:
+        scan.dast_confirmed_count = dast_confirmed_count
     if error_message is not None:
         scan.error_message = error_message
     if detected_languages is not None:

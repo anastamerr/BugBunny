@@ -10,6 +10,8 @@ export const scansApi = {
     dependency_health_enabled?: boolean;
     target_url?: string;
     dast_consent?: boolean;
+    dast_auth_headers?: Record<string, string>;
+    dast_cookies?: string;
   }) => {
     const { data } = await api.post<Scan>("/api/scans", payload);
     return data;

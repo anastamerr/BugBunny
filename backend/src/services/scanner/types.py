@@ -63,6 +63,7 @@ class TriagedFinding:
     dast_evidence: Optional[List[str]] = None
     dast_cve_ids: Optional[List[str]] = None
     dast_cwe_ids: Optional[List[str]] = None
+    dast_verification_status: Optional[str] = None
 
 
 @dataclass
@@ -96,6 +97,37 @@ class DependencyFinding:
     description: str
     cvss_score: Optional[float]
     target: Optional[str] = None
+
+
+@dataclass
+class DASTAttackConfig:
+    """Configuration for attacking a specific SAST finding."""
+    finding_id: str
+    vuln_type: str  # "sqli", "xss", "command-injection", etc.
+    nuclei_templates: List[str]  # Nuclei CLI args (e.g. ["-tags", "sqli"])
+    target_endpoint: str  # Full URL to attack
+    target_parameter: str  # Which parameter is vulnerable
+    http_method: str = "GET"
+    sast_rule_id: str = ""
+    endpoint_mapping_confidence: float = 0.5  # Confidence in endpoint mapping
+
+
+@dataclass
+class DASTAttackResult:
+    """Result of DAST attack on a specific SAST finding."""
+    finding_id: str
+    attack_succeeded: bool
+    confidence: float  # 0.0-1.0
+    verification_status: str  # One of: not_run, confirmed_exploitable, attempted_not_reproduced, blocked_auth_required, blocked_rate_limit, inconclusive_mapping, error_timeout, error_tooling
+    proof_of_exploit: Optional[str] = None  # Curl command
+    evidence: Optional[List[str]] = None  # Raw Nuclei output
+    matched_at: Optional[str] = None
+    endpoint: Optional[str] = None
+    template_id: Optional[str] = None
+    severity: Optional[str] = None
+    cve_ids: Optional[List[str]] = None
+    cwe_ids: Optional[List[str]] = None
+    error: Optional[str] = None
 
 
 @dataclass

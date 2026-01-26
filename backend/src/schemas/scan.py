@@ -117,6 +117,8 @@ class ScanCreate(BaseModel):
     dependency_health_enabled: bool = True
     target_url: Optional[str] = None
     dast_consent: bool = False
+    dast_auth_headers: Optional[dict[str, str]] = None
+    dast_cookies: Optional[str] = None
 
     @model_validator(mode="after")
     def _require_repo(self) -> "ScanCreate":
@@ -144,6 +146,7 @@ class ScanUpdate(BaseModel):
     total_findings: Optional[int] = None
     filtered_findings: Optional[int] = None
     dast_findings: Optional[int] = None
+    dast_confirmed_count: Optional[int] = None
     error_message: Optional[str] = None
     pr_number: Optional[int] = None
     pr_url: Optional[str] = None
@@ -171,6 +174,7 @@ class ScanRead(BaseModel):
     total_findings: int
     filtered_findings: int
     dast_findings: int
+    dast_confirmed_count: int = 0
     error_message: Optional[str] = None
     pr_number: Optional[int] = None
     pr_url: Optional[str] = None

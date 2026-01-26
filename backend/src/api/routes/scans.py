@@ -107,6 +107,8 @@ async def create_scan(
         scan_type=payload.scan_type.value,
         dependency_health_enabled=payload.dependency_health_enabled,
         target_url=payload.target_url,
+        dast_auth_headers=payload.dast_auth_headers,
+        dast_cookies=payload.dast_cookies,
         status="pending",
         trigger="manual",
         total_findings=0,

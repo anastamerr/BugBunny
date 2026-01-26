@@ -36,6 +36,28 @@ const fixStatusStyles: Record<string, string> = {
   failed: "badge border-rose-400/40 bg-rose-400/10 text-rose-200",
 };
 
+const dastStatusLabels: Record<string, string> = {
+  confirmed_exploitable: "🔴 confirmed exploitable",
+  attempted_not_reproduced: "⚪ attempted not reproduced",
+  blocked_auth_required: "🔒 auth required",
+  blocked_rate_limit: "⏱️ rate limited",
+  inconclusive_mapping: "❓ inconclusive mapping",
+  error_timeout: "⏰ timeout",
+  error_tooling: "⚠️ tooling error",
+  not_run: "⚫ SAST only (no DAST run)",
+};
+
+const dastStatusStyles: Record<string, string> = {
+  confirmed_exploitable: "badge border-rose-500/60 bg-rose-500/15 text-rose-200 font-semibold",
+  attempted_not_reproduced: "badge border-white/20 bg-white/10 text-white/80",
+  blocked_auth_required: "badge border-amber-400/40 bg-amber-400/10 text-amber-200",
+  blocked_rate_limit: "badge border-sky-400/40 bg-sky-400/10 text-sky-200",
+  inconclusive_mapping: "badge border-violet-400/40 bg-violet-400/10 text-violet-200",
+  error_timeout: "badge border-amber-400/40 bg-amber-400/10 text-amber-200",
+  error_tooling: "badge border-rose-400/40 bg-rose-400/10 text-rose-200",
+  not_run: "badge border-white/20 bg-white/10 text-white/70",
+};
+
 function displayText(value?: string | null, fallback: string = "n/a") {
   if (!value) return fallback;
   const trimmed = value.trim();
@@ -145,6 +167,10 @@ export function FindingCard({
   const showGenerateFix = Boolean(onAutoFix) && canAutoFix;
   const showOpenPrAction =
     Boolean(onAutoFix) && canAutoFix && Boolean(fixPatch) && !finding.fix_pr_url;
+  const dastStatus = finding.dast_verification_status || "not_run";
+  const showDastStatus = !isDast && !finding.is_false_positive;
+  const dastBadgeLabel = dastStatusLabels[dastStatus] || dastStatusLabels.not_run;
+  const dastBadgeClass = dastStatusStyles[dastStatus] || "badge";
 
   return (
     <div className="surface-solid p-5">
@@ -167,10 +193,8 @@ export function FindingCard({
             {fixLabel ? (
               <span className={fixBadgeClass}>{fixLabel}</span>
             ) : null}
-            {finding.confirmed_exploitable ? (
-              <span className="badge border-neon-mint/40 bg-neon-mint/10 text-neon-mint">
-                confirmed exploitable
-              </span>
+            {showDastStatus ? (
+              <span className={dastBadgeClass}>{dastBadgeLabel}</span>
             ) : null}
             {finding.is_false_positive ? (
               <span className="badge border-white/20 bg-white/10 text-white/60">

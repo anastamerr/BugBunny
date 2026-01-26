@@ -120,6 +120,28 @@ function getProgressPercentage(status: Scan["status"]): number {
   }
 }
 
+function parseAuthHeaders(value: string): Record<string, string> | undefined {
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(trimmed);
+  } catch {
+    throw new Error("Auth headers must be valid JSON (e.g. {\"Authorization\":\"Bearer ...\"}).");
+  }
+  if (!parsed || Array.isArray(parsed) || typeof parsed !== "object") {
+    throw new Error("Auth headers must be a JSON object.");
+  }
+  const headers: Record<string, string> = {};
+  Object.entries(parsed as Record<string, unknown>).forEach(([key, val]) => {
+    const headerKey = key.trim();
+    if (!headerKey) return;
+    if (val === null || val === undefined) return;
+    headers[headerKey] = String(val);
+  });
+  return Object.keys(headers).length ? headers : undefined;
+}
+
 // ============================================================================
 // Sub-Components
 // ============================================================================
@@ -357,6 +379,10 @@ function NewScanForm({
   setTargetUrl,
   dastConsent,
   setDastConsent,
+  dastAuthHeaders,
+  setDastAuthHeaders,
+  dastCookies,
+  setDastCookies,
   selectedRepoId,
   setSelectedRepoId,
   repos,
@@ -377,6 +403,10 @@ function NewScanForm({
   setTargetUrl: (url: string) => void;
   dastConsent: boolean;
   setDastConsent: (consent: boolean) => void;
+  dastAuthHeaders: string;
+  setDastAuthHeaders: (headers: string) => void;
+  dastCookies: string;
+  setDastCookies: (cookies: string) => void;
   selectedRepoId: string;
   setSelectedRepoId: (id: string) => void;
   repos: Array<{ id: string; repo_url: string; repo_full_name?: string | null }>;
@@ -477,6 +507,36 @@ function NewScanForm({
                 I confirm I am authorized to perform security testing on this target
               </span>
             </label>
+            <div className="mt-4 grid gap-4 sm:grid-cols-2">
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-widest text-violet-300/80 mb-2">
+                  Auth Headers (JSON, optional)
+                </label>
+                <textarea
+                  className="input-textarea min-h-[96px] w-full font-mono text-xs leading-relaxed"
+                  placeholder='{"Authorization":"Bearer <token>"}'
+                  value={dastAuthHeaders}
+                  onChange={(e) => setDastAuthHeaders(e.target.value)}
+                />
+                <p className="mt-2 text-xs text-white/40">
+                  Stored for this scan only. Valid JSON object required.
+                </p>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-widest text-violet-300/80 mb-2">
+                  Cookies (optional)
+                </label>
+                <input
+                  className="input w-full font-mono text-xs"
+                  placeholder="session=abc123; token=xyz"
+                  value={dastCookies}
+                  onChange={(e) => setDastCookies(e.target.value)}
+                />
+                <p className="mt-2 text-xs text-white/40">
+                  Added as a Cookie header for DAST requests.
+                </p>
+              </div>
+            </div>
           </div>
         )}
 
@@ -637,6 +697,8 @@ export default function Scans() {
   const [selectedRepoId, setSelectedRepoId] = useState("");
   const [targetUrl, setTargetUrl] = useState("");
   const [dastConsent, setDastConsent] = useState(false);
+  const [dastAuthHeaders, setDastAuthHeaders] = useState("");
+  const [dastCookies, setDastCookies] = useState("");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   // UI State
@@ -671,6 +733,11 @@ export default function Scans() {
       const trimmedRepo = repoUrl.trim();
       const trimmedBranch = branch.trim() || "main";
       const trimmedTarget = targetUrl.trim();
+      const trimmedCookies = dastCookies.trim();
+      const authHeaders =
+        scanType !== "sast" ? parseAuthHeaders(dastAuthHeaders) : undefined;
+      const cookies =
+        scanType !== "sast" && trimmedCookies ? trimmedCookies : undefined;
 
       if (scanType !== "dast" && !trimmedRepo) {
         throw new Error("Repository URL is required.");
@@ -689,11 +756,15 @@ export default function Scans() {
         dependency_health_enabled: scanType !== "dast" ? dependencyHealthEnabled : undefined,
         target_url: scanType !== "sast" ? trimmedTarget : undefined,
         dast_consent: scanType !== "sast" ? dastConsent : undefined,
+        dast_auth_headers: authHeaders,
+        dast_cookies: cookies,
       });
     },
     onSuccess: async () => {
       setErrorMessage(null);
       setRepoUrl("");
+      setDastAuthHeaders("");
+      setDastCookies("");
       setShowNewScan(false);
       await queryClient.invalidateQueries({ queryKey: ["scans"] });
     },
@@ -706,6 +777,11 @@ export default function Scans() {
     mutationFn: async () => {
       if (!selectedRepoId) throw new Error("Select a saved repository.");
       const trimmedTarget = targetUrl.trim();
+      const trimmedCookies = dastCookies.trim();
+      const authHeaders =
+        scanType !== "sast" ? parseAuthHeaders(dastAuthHeaders) : undefined;
+      const cookies =
+        scanType !== "sast" && trimmedCookies ? trimmedCookies : undefined;
       if (scanType !== "sast" && !trimmedTarget) {
         throw new Error("Target URL is required for DAST.");
       }
@@ -718,10 +794,14 @@ export default function Scans() {
         dependency_health_enabled: scanType !== "dast" ? dependencyHealthEnabled : undefined,
         target_url: scanType !== "sast" ? trimmedTarget : undefined,
         dast_consent: scanType !== "sast" ? dastConsent : undefined,
+        dast_auth_headers: authHeaders,
+        dast_cookies: cookies,
       });
     },
     onSuccess: async () => {
       setErrorMessage(null);
+      setDastAuthHeaders("");
+      setDastCookies("");
       setShowNewScan(false);
       await queryClient.invalidateQueries({ queryKey: ["scans"] });
     },
@@ -869,6 +949,10 @@ export default function Scans() {
           setTargetUrl={setTargetUrl}
           dastConsent={dastConsent}
           setDastConsent={setDastConsent}
+          dastAuthHeaders={dastAuthHeaders}
+          setDastAuthHeaders={setDastAuthHeaders}
+          dastCookies={dastCookies}
+          setDastCookies={setDastCookies}
           selectedRepoId={selectedRepoId}
           setSelectedRepoId={setSelectedRepoId}
           repos={repoList}

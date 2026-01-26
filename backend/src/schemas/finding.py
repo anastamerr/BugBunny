@@ -39,6 +39,17 @@ class FixStatus(str, Enum):
     failed = "failed"
 
 
+class DASTVerificationStatus(str, Enum):
+    not_run = "not_run"
+    confirmed_exploitable = "confirmed_exploitable"
+    attempted_not_reproduced = "attempted_not_reproduced"
+    blocked_auth_required = "blocked_auth_required"
+    blocked_rate_limit = "blocked_rate_limit"
+    inconclusive_mapping = "inconclusive_mapping"
+    error_timeout = "error_timeout"
+    error_tooling = "error_tooling"
+
+
 class FindingBase(BaseModel):
     scan_id: uuid.UUID
     rule_id: str
@@ -70,6 +81,10 @@ class FindingBase(BaseModel):
     cve_ids: Optional[List[str]] = None
     cwe_ids: Optional[List[str]] = None
     confirmed_exploitable: bool = False
+
+    # DAST verification fields
+    dast_verified: bool = False
+    dast_verification_status: Optional[DASTVerificationStatus] = None
 
     # Reachability analysis fields
     is_reachable: bool = True

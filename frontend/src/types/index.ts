@@ -35,6 +35,7 @@ export interface Scan {
   total_findings: number;
   filtered_findings: number;
   dast_findings: number;
+  dast_confirmed_count: number;
   error_message?: string | null;
   pr_number?: number | null;
   pr_url?: string | null;
@@ -95,6 +96,8 @@ export interface Finding {
   cve_ids?: string[] | null;
   cwe_ids?: string[] | null;
   confirmed_exploitable?: boolean;
+  dast_verified?: boolean;
+  dast_verification_status?: string | null;
   is_reachable?: boolean;
   reachability_score?: number | null;
   reachability_reason?: string | null;

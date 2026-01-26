@@ -32,6 +32,8 @@ class Scan(Base):
     )
     dependency_health_enabled = Column(Boolean, nullable=False, default=True)
     target_url = Column(String, nullable=True)
+    dast_auth_headers = Column(JSON, nullable=True)  # {"Authorization": "Bearer token"}
+    dast_cookies = Column(Text, nullable=True)  # "session=abc; token=xyz"
     status = Column(
         Enum(
             "pending",
@@ -54,6 +56,7 @@ class Scan(Base):
     total_findings = Column(Integer, nullable=False, default=0)
     filtered_findings = Column(Integer, nullable=False, default=0)
     dast_findings = Column(Integer, nullable=False, default=0)
+    dast_confirmed_count = Column(Integer, nullable=False, default=0)
     error_message = Column(Text, nullable=True)
     pr_number = Column(Integer, nullable=True)
     pr_url = Column(String, nullable=True)
