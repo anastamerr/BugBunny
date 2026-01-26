@@ -101,11 +101,13 @@ def _normalize_target_url(value: str) -> str:
         raise ValueError("target_url must include a host")
     if parsed.username or parsed.password:
         raise ValueError("target_url must not include credentials")
-    if _is_blocked_host(parsed.hostname):
-        raise ValueError("target_url must be a public http(s) address")
     allowlist = _parse_allowlist(get_settings().dast_allowed_hosts)
-    if allowlist and not _is_allowed_host(parsed.hostname, allowlist):
-        raise ValueError("target_url host is not allowed")
+    if allowlist:
+        if not _is_allowed_host(parsed.hostname, allowlist):
+            raise ValueError("target_url host is not allowed")
+    else:
+        if _is_blocked_host(parsed.hostname):
+            raise ValueError("target_url must be a public http(s) address")
     return trimmed
 
 
