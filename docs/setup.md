@@ -20,9 +20,9 @@ Optional:
 
 Optional DAST settings:
 - `DAST_ALLOWED_HOSTS` (comma-separated allowed host suffixes)
-- `NUCLEI_TEMPLATES_PATH`, `NUCLEI_SEVERITIES`, `NUCLEI_RATE_LIMIT`
-- `NUCLEI_TAGS`, `NUCLEI_EXCLUDE_TAGS`, `NUCLEI_PROTOCOLS`
-- `NUCLEI_REQUEST_TIMEOUT_SECONDS`
+- `ZAP_DOCKER_IMAGE`, `ZAP_API_KEY`, `ZAP_TIMEOUT_SECONDS`
+- `ZAP_REQUEST_TIMEOUT_SECONDS`, `ZAP_MAX_DEPTH`, `ZAP_SCAN_POLICY`
+DAST runs OWASP ZAP in Docker; ensure Docker is available on the host.
 
 Optional scan limits:
 - `SCAN_MAX_ACTIVE`

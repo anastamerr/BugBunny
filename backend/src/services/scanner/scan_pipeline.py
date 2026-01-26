@@ -281,7 +281,11 @@ async def run_scan_pipeline(
 
             # Also run blind DAST scan for additional coverage
             if dast_runner.is_available():
-                dast_findings = await dast_runner.scan(target_url)
+                dast_findings = await dast_runner.scan(
+                    target_url,
+                    auth_headers=scan.dast_auth_headers if scan else None,
+                    cookies=scan.dast_cookies if scan else None,
+                )
                 if dast_runner.last_error:
                     dast_error = _merge_error_message(
                         dast_error,
@@ -290,8 +294,8 @@ async def run_scan_pipeline(
             else:
                 dast_error = _merge_error_message(
                     dast_error,
-                    "DAST error: Nuclei binary not found.",
-                ) if dast_error else "DAST error: Nuclei binary not found."
+                    "DAST error: Docker not available for ZAP.",
+                ) if dast_error else "DAST error: Docker not available for ZAP."
 
             _update_scan(
                 db,
@@ -414,7 +418,7 @@ async def run_scan_pipeline(
                     finding_type="dast",
                     ai_severity=ai_severity,
                     is_false_positive=False,
-                    ai_reasoning="Confirmed by dynamic analysis (Nuclei).",
+                    ai_reasoning="Confirmed by dynamic analysis (ZAP).",
                     ai_confidence=1.0,
                     exploitability="Confirmed via dynamic scan.",
                     file_path=item.matched_at or item.endpoint,

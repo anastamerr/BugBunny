@@ -107,7 +107,7 @@ class DummyDAST:
     def is_available(self):
         return False
 
-    async def scan(self, target_url):  # noqa: ANN001
+    async def scan(self, target_url, auth_headers=None, cookies=None):  # noqa: ANN001
         return []
 
 

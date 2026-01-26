@@ -1,56 +1,48 @@
 """
-Targeted DAST Runner - Attacks specific SAST findings.
+Targeted DAST Runner - Attacks specific SAST findings with OWASP ZAP.
 
-Unlike blind DAST that scans entire apps, this targets specific
-vulnerabilities found by SAST to confirm exploitability.
-
-Workflow:
-1. Takes SAST findings as input (after AI triage)
-2. Maps each finding to attack configuration (endpoint, parameter, vuln type)
-3. Runs Nuclei with targeted tags for each finding
-4. Returns results showing which findings are confirmed exploitable
+Instead of blindly scanning the entire app, this runner:
+1. Maps SAST findings to likely endpoints/parameters
+2. Runs focused ZAP spider + active scan for that endpoint
+3. Confirms exploitability when matching ZAP alerts are produced
 """
 
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import re
-import shutil
-import subprocess
+import uuid
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
-from urllib.parse import urljoin
+from urllib.parse import parse_qsl, urlencode, urljoin, urlparse, urlunparse
 
 from ...config import get_settings
 from .commit_verifier import CommitVerifier
 from .route_parser import RouteParser
 from .types import DASTAttackConfig, DASTAttackResult, TriagedFinding
+from .zap_client import ZapDockerSession, ZapError, is_docker_available
+from .zap_parser import (
+    VULN_KEYWORDS,
+    alert_matches_vuln_type,
+    classify_vulnerability,
+    parse_zap_alert,
+)
 
 logger = logging.getLogger(__name__)
 
 
 class TargetedDASTRunner:
     """
-    Executes targeted DAST attacks based on SAST findings.
-
-    Instead of blindly scanning an entire application, this runner:
-    1. Takes SAST findings (e.g., SQL injection in line 45)
-    2. Maps to endpoint (e.g., /api/users?id=X)
-    3. Generates attack config (SQLi payloads for that endpoint)
-    4. Runs Nuclei with targeted tags
-    5. Returns confirmation of exploitability
+    Executes focused ZAP active scans based on SAST findings.
     """
 
     def __init__(
         self,
-        nuclei_path: str = "nuclei",
-        timeout: int = 60,
+        timeout: int = 120,
         auth_headers: Optional[Dict[str, str]] = None,
         cookies: Optional[str] = None,
     ) -> None:
-        self.nuclei_path = nuclei_path
         self.timeout = timeout
         self.settings = get_settings()
         self.last_error: str | None = None
@@ -75,32 +67,8 @@ class TargetedDASTRunner:
         return normalized
 
     def is_available(self) -> bool:
-        """Check if Nuclei is installed."""
-        return shutil.which(self.nuclei_path) is not None
-
-    def _validate_nuclei(self) -> bool:
-        """Ensure Nuclei is callable before running attacks."""
-        if not self.is_available():
-            self.last_error = (
-                "Nuclei not found. Install: go install "
-                "github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest"
-            )
-            return False
-        try:
-            result = subprocess.run(
-                [self.nuclei_path, "-version"],
-                capture_output=True,
-                text=True,
-                timeout=5,
-            )
-        except (FileNotFoundError, subprocess.TimeoutExpired) as exc:
-            self.last_error = f"Nuclei validation failed: {exc}"
-            return False
-        if result.returncode != 0:
-            output = (result.stderr or result.stdout or "").strip()
-            self.last_error = output or "Nuclei validation failed"
-            return False
-        return True
+        """Check if Docker is installed (required for ZAP container)."""
+        return is_docker_available()
 
     def _build_route_map(self, repo_path: str) -> Dict[str, List[str]]:
         if not repo_path:
@@ -189,7 +157,6 @@ class TargetedDASTRunner:
         attack_configs: List[DASTAttackConfig] = []
         route_map = self._build_route_map(repo_path)
 
-        # Generate attack configurations for non-false-positive findings
         for finding in sast_findings:
             if finding.is_false_positive:
                 continue
@@ -213,9 +180,8 @@ class TargetedDASTRunner:
             logger.info("No SAST findings suitable for DAST verification")
             return []
 
-        if not self._validate_nuclei():
-            error_message = self.last_error or "Nuclei validation failed"
-            logger.warning(error_message)
+        if not self.is_available():
+            self.last_error = "Docker is not available for running ZAP."
             return [
                 DASTAttackResult(
                     finding_id=config.finding_id,
@@ -224,55 +190,52 @@ class TargetedDASTRunner:
                     verification_status="error_tooling",
                     proof_of_exploit=None,
                     evidence=[],
-                    error=error_message,
+                    error=self.last_error,
                 )
                 for config in attack_configs
             ]
 
-        logger.info(
-            "Targeting %d SAST findings for DAST verification", len(attack_configs)
-        )
+        timeout_seconds = min(self.settings.zap_timeout_seconds, self.timeout)
 
-        # Execute attacks with concurrency control
-        semaphore = asyncio.Semaphore(3)  # Max 3 concurrent attacks
-
-        async def run_with_semaphore(config: DASTAttackConfig) -> DASTAttackResult:
-            async with semaphore:
-                return await self._execute_attack(config)
-
-        tasks = [run_with_semaphore(config) for config in attack_configs]
-        results = await asyncio.gather(*tasks, return_exceptions=True)
-
-        # Process results, handling any exceptions
-        processed_results: List[DASTAttackResult] = []
-        for i, result in enumerate(results):
-            if isinstance(result, Exception):
-                config = attack_configs[i]
-                logger.error(
-                    "DAST attack failed for %s: %s", config.finding_id, result
+        try:
+            async with ZapDockerSession(
+                image=self.settings.zap_docker_image,
+                api_key=self.settings.zap_api_key,
+                timeout_seconds=timeout_seconds,
+                request_timeout_seconds=self.settings.zap_request_timeout_seconds,
+            ) as zap:
+                rule_descriptions = await _apply_auth_headers(
+                    zap, self.auth_headers, self.cookies
                 )
-                processed_results.append(
-                    DASTAttackResult(
-                        finding_id=config.finding_id,
-                        attack_succeeded=False,
-                        confidence=0.0,
-                        verification_status="error_tooling",
-                        proof_of_exploit=None,
-                        evidence=[],
-                        error=str(result),
-                    )
+                try:
+                    results: List[DASTAttackResult] = []
+                    for config in attack_configs:
+                        results.append(await self._execute_attack(zap, config))
+                finally:
+                    await _remove_auth_headers(zap, rule_descriptions)
+        except ZapError as exc:
+            self.last_error = str(exc)
+            return [
+                DASTAttackResult(
+                    finding_id=config.finding_id,
+                    attack_succeeded=False,
+                    confidence=0.0,
+                    verification_status=_status_from_error(exc),
+                    proof_of_exploit=None,
+                    evidence=[],
+                    error=str(exc),
                 )
-            else:
-                processed_results.append(result)
+                for config in attack_configs
+            ]
 
-        confirmed_count = sum(1 for r in processed_results if r.attack_succeeded)
+        confirmed_count = sum(1 for r in results if r.attack_succeeded)
         logger.info(
             "DAST verification complete: %d/%d findings confirmed exploitable",
             confirmed_count,
-            len(processed_results),
+            len(results),
         )
 
-        return processed_results
+        return results
 
     def _generate_attack_config(
         self,
@@ -281,29 +244,13 @@ class TargetedDASTRunner:
         repo_path: str,
         route_map: Optional[Dict[str, List[str]]] = None,
     ) -> Optional[DASTAttackConfig]:
-        """
-        Map SAST finding to DAST attack configuration.
-
-        Examples:
-        - SAST: "SQL injection in users.py line 45"
-          -> DAST: Attack /api/users with SQLi payloads
-
-        - SAST: "XSS in search_handler.js line 23"
-          -> DAST: Attack /search?q=<payload>
-
-        - SAST: "Command injection in upload.py line 67"
-          -> DAST: Attack /upload with command payloads
-        """
         rule_id = finding.rule_id.lower()
         rule_message = (finding.rule_message or "").lower()
 
-        # Determine vulnerability type and appropriate templates
-        vuln_type, tags_args = self._classify_vulnerability(rule_id, rule_message)
-
+        vuln_type = classify_vulnerability(f"{rule_id} {rule_message}")
         if not vuln_type:
             return None
 
-        # Map file path to endpoint
         endpoint, confidence = self._resolve_endpoint(
             finding.file_path,
             repo_path,
@@ -311,16 +258,13 @@ class TargetedDASTRunner:
         )
         target_url = urljoin(base_url.rstrip("/") + "/", endpoint.lstrip("/"))
 
-        # Extract parameter name from code context
         parameter = self._extract_parameter(finding)
-
-        # Build finding ID from the finding attributes
         finding_id = f"{finding.rule_id}:{finding.file_path}:{finding.line_start}"
 
         return DASTAttackConfig(
             finding_id=finding_id,
             vuln_type=vuln_type,
-            nuclei_templates=tags_args,
+            vuln_keywords=VULN_KEYWORDS.get(vuln_type, []),
             target_endpoint=target_url,
             target_parameter=parameter,
             http_method=self._detect_http_method(finding),
@@ -328,91 +272,10 @@ class TargetedDASTRunner:
             endpoint_mapping_confidence=confidence,
         )
 
-    def _classify_vulnerability(
-        self, rule_id: str, rule_message: str
-    ) -> Tuple[Optional[str], List[str]]:
-        """
-        Map Semgrep rule to vulnerability type and Nuclei tag args.
-
-        Returns: (vuln_type, nuclei_args)
-        """
-        combined_text = f"{rule_id} {rule_message}"
-
-        classifications = [
-            (
-                ["sql", "sqli", "injection.sql"],
-                "sqli",
-                ["-tags", "sqli"],
-            ),
-            (
-                ["xss", "cross-site-scripting", "cross_site_scripting"],
-                "xss",
-                ["-tags", "xss"],
-            ),
-            (
-                ["command", "cmd-injection", "os-command", "exec", "shell"],
-                "command-injection",
-                ["-tags", "cmdi,command-injection"],
-            ),
-            (
-                ["code-injection", "eval", "rce", "remote-code"],
-                "code-injection",
-                ["-tags", "rce,code-injection"],
-            ),
-            (
-                ["path-traversal", "directory-traversal", "lfi", "file-inclusion"],
-                "path-traversal",
-                ["-tags", "lfi,path-traversal"],
-            ),
-            (
-                ["xxe", "xml-external-entity"],
-                "xxe",
-                ["-tags", "xxe"],
-            ),
-            (
-                ["ssrf", "server-side-request"],
-                "ssrf",
-                ["-tags", "ssrf"],
-            ),
-            (
-                ["ssti", "template-injection", "server-side-template"],
-                "ssti",
-                ["-tags", "ssti"],
-            ),
-            (
-                ["open-redirect", "unvalidated-redirect"],
-                "open-redirect",
-                ["-tags", "open-redirect"],
-            ),
-            (
-                ["deserialization", "deserialize", "pickle", "yaml.load", "unserialize"],
-                "deserialization",
-                ["-tags", "deserialization"],
-            ),
-        ]
-
-        for keywords, vuln_type, templates in classifications:
-            if any(keyword in combined_text for keyword in keywords):
-                return vuln_type, templates
-
-        return None, []
-
     def _map_file_to_endpoint(self, file_path: str, repo_path: str) -> str:
-        """
-        Convert code file path to API endpoint.
-
-        Examples:
-        - api/routes/users.py -> /api/users
-        - controllers/AuthController.java -> /auth
-        - handlers/search_handler.go -> /search
-        - src/routes/products/[id].tsx -> /products/:id
-
-        This is heuristic-based. For production, parse route definitions.
-        """
         # Remove repo path prefix
         rel_path = file_path.replace(repo_path, "").lstrip("/")
 
-        # Common patterns for route files
         patterns = [
             (r"api/routes?/(.+?)\.py$", r"/api/\1"),
             (r"routes?/(.+?)\.py$", r"/\1"),
@@ -431,16 +294,12 @@ class TargetedDASTRunner:
             match = re.search(pattern, rel_path, re.IGNORECASE)
             if match:
                 endpoint = re.sub(pattern, replacement, rel_path, flags=re.IGNORECASE)
-                # Clean up the endpoint
                 endpoint = endpoint.lower()
                 endpoint = re.sub(r"_", "-", endpoint)
-                # Handle Next.js style dynamic routes
                 endpoint = re.sub(r"\[(\w+)\]", r":\1", endpoint)
                 return endpoint
 
-        # Fallback: extract meaningful part from filename
         filename = rel_path.split("/")[-1].rsplit(".", 1)[0]
-        # Remove common suffixes
         for suffix in [
             "_controller",
             "controller",
@@ -456,40 +315,27 @@ class TargetedDASTRunner:
         return f"/{filename.lower().replace('_', '-')}"
 
     def _extract_parameter(self, finding: TriagedFinding) -> str:
-        """
-        Extract vulnerable parameter name from code context.
-
-        Example: request.args.get('id') -> 'id'
-        """
         code = finding.code_snippet or ""
         context = finding.context_snippet or ""
         combined = f"{code} {context}"
 
-        # Common parameter extraction patterns by framework
         patterns = [
-            # Flask
             r"request\.args\.get\(['\"](\w+)['\"]",
             r"request\.form\.get\(['\"](\w+)['\"]",
             r"request\.values\.get\(['\"](\w+)['\"]",
             r"request\.json\.get\(['\"](\w+)['\"]",
-            # Django
             r"request\.GET\.get\(['\"](\w+)['\"]",
             r"request\.POST\.get\(['\"](\w+)['\"]",
             r"request\.data\.get\(['\"](\w+)['\"]",
-            # Express.js
             r"req\.query\.(\w+)",
             r"req\.body\.(\w+)",
             r"req\.params\.(\w+)",
-            # FastAPI
             r"(\w+):\s*(?:str|int|float|bool)\s*=\s*Query",
             r"(\w+):\s*(?:str|int|float|bool)\s*=\s*Body",
             r"(\w+):\s*(?:str|int|float|bool)\s*=\s*Path",
-            # Rails
             r"params\[:['\"]?(\w+)",
-            # Spring
             r"@RequestParam.*?['\"](\w+)['\"]",
             r"@PathVariable.*?['\"](\w+)['\"]",
-            # Generic patterns
             r"['\"](\w+)['\"]\s*[:\]]\s*request",
             r"get\(['\"](\w+)['\"]",
         ]
@@ -499,17 +345,14 @@ class TargetedDASTRunner:
             if match:
                 return match.group(1)
 
-        # Try to extract from function name
         if finding.function_name:
-            # Functions like get_user, update_user might suggest 'user' as param
             parts = finding.function_name.split("_")
             if len(parts) >= 2 and parts[0] in ["get", "update", "delete", "find"]:
                 return parts[1]
 
-        return "id"  # Default fallback
+        return "id"
 
     def _detect_http_method(self, finding: TriagedFinding) -> str:
-        """Detect HTTP method from code context."""
         code = (finding.code_snippet or "").lower()
         context = (finding.context_snippet or "").lower()
         combined = f"{code} {context}"
@@ -525,173 +368,135 @@ class TargetedDASTRunner:
             if any(indicator in combined for indicator in indicators):
                 return method
 
-        return "GET"  # Default
+        return "GET"
 
-    async def _execute_attack(self, config: DASTAttackConfig) -> DASTAttackResult:
-        """
-        Execute Nuclei attack with specific configuration.
-
-        Returns result showing if attack succeeded.
-        """
+    async def _execute_attack(
+        self,
+        zap: ZapDockerSession,
+        config: DASTAttackConfig,
+    ) -> DASTAttackResult:
         logger.info(
             "DAST attacking %s for %s vulnerability",
             config.target_endpoint,
             config.vuln_type,
         )
 
-        # Build Nuclei command
-        cmd = [
-            self.nuclei_path,
-            "-u",
-            config.target_endpoint,
-            "-jsonl",
-            "-silent",
-            "-timeout",
-            "10",
-            "-rate-limit",
-            "30",
-            "-no-interactsh",  # Disable out-of-band testing for speed
-        ]
-
-        # Add tags / template args
-        cmd.extend(config.nuclei_templates)
-
-        # Add severity filter to focus on actual vulnerabilities
-        cmd.extend(["-severity", "critical,high,medium"])
-
-        # Add auth headers and cookies
-        for header, value in self.auth_headers.items():
-            cmd.extend(["-H", f"{header}: {value}"])
-        if self.cookies and not _has_cookie_header(self.auth_headers):
-            cmd.extend(["-H", f"Cookie: {self.cookies}"])
+        target_url, post_data = _prepare_target_request(config)
+        context_name = f"scanguard-{uuid.uuid4().hex[:8]}"
+        context_id: Optional[str] = None
 
         try:
-            proc = await asyncio.create_subprocess_exec(
-                *cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
+            context_id = await zap.create_context(context_name)
+            include_regex = _build_include_regex(target_url)
+            await zap.include_in_context(context_name, include_regex)
+        except ZapError as exc:
+            logger.debug("ZAP context setup failed: %s", exc)
+            context_id = None
+
+        try:
+            spider_id = await zap.spider_scan(
+                target_url,
+                max_children=self.settings.zap_max_depth,
+                recurse=False,
+                context_name=context_name if context_id else None,
+                subtree_only=True,
             )
-
-            stdout, stderr = await asyncio.wait_for(
-                proc.communicate(), timeout=self.timeout
-            )
-
-            output = stdout.decode(errors="ignore")
-            stderr_text = stderr.decode(errors="ignore")
-
-            if not output.strip():
-                combined = f"{output}\n{stderr_text}".lower()
-                blocked_status = _detect_blocking_status(combined)
-                if blocked_status:
-                    return DASTAttackResult(
-                        finding_id=config.finding_id,
-                        attack_succeeded=False,
-                        confidence=0.35,
-                        verification_status=blocked_status,
-                        proof_of_exploit=None,
-                        evidence=["Target blocked verification attempts."],
-                        error=stderr_text.strip() or None,
-                    )
-                if proc.returncode not in (0, None):
-                    error_detail = stderr_text.strip() or (
-                        f"Nuclei exited with code {proc.returncode}"
-                    )
-                    return DASTAttackResult(
-                        finding_id=config.finding_id,
-                        attack_succeeded=False,
-                        confidence=0.0,
-                        verification_status="error_tooling",
-                        proof_of_exploit=None,
-                        evidence=[],
-                        error=error_detail,
-                    )
-                status = (
-                    "attempted_not_reproduced"
-                    if config.endpoint_mapping_confidence >= 0.45
-                    else "inconclusive_mapping"
-                )
-                confidence = 0.6 if status == "attempted_not_reproduced" else 0.35
+            await zap.wait_spider(spider_id)
+        except ZapError as exc:
+            blocked = _detect_blocking_status(str(exc))
+            if blocked:
                 return DASTAttackResult(
                     finding_id=config.finding_id,
                     attack_succeeded=False,
-                    confidence=confidence,
-                    verification_status=status,
+                    confidence=0.35,
+                    verification_status=blocked,
                     proof_of_exploit=None,
-                    evidence=["Nuclei completed without confirmed vulnerabilities."],
+                    evidence=["ZAP spider blocked the request."],
+                    error=str(exc),
                 )
 
-            # Parse JSONL output
-            findings = []
-            for line in output.strip().split("\n"):
-                try:
-                    findings.append(json.loads(line))
-                except json.JSONDecodeError:
-                    continue
-
-            if findings:
-                # Attack succeeded!
-                first = findings[0]
-                info = first.get("info", {})
-                classification = info.get("classification", {})
-
-                return DASTAttackResult(
-                    finding_id=config.finding_id,
-                    attack_succeeded=True,
-                    confidence=0.99,  # Very high confidence
-                    verification_status="confirmed_exploitable",
-                    proof_of_exploit=first.get("curl-command"),
-                    evidence=[f.get("matched-at", "") for f in findings],
-                    matched_at=first.get("matched-at"),
-                    endpoint=config.target_endpoint,
-                    template_id=first.get("template-id"),
-                    severity=info.get("severity"),
-                    cve_ids=classification.get("cve-id", []),
-                    cwe_ids=classification.get("cwe-id", []),
-                )
-
-            status = (
-                "attempted_not_reproduced"
-                if config.endpoint_mapping_confidence >= 0.45
-                else "inconclusive_mapping"
+        try:
+            scan_id = await zap.active_scan(
+                url=target_url,
+                recurse=False,
+                in_scope_only=None,
+                scan_policy_name=self.settings.zap_scan_policy,
+                method=config.http_method,
+                post_data=post_data,
+                context_id=context_id,
             )
-            confidence = 0.6 if status == "attempted_not_reproduced" else 0.35
+            await zap.wait_active(scan_id)
+        except ZapError as exc:
+            status = _status_from_error(exc)
             return DASTAttackResult(
                 finding_id=config.finding_id,
                 attack_succeeded=False,
-                confidence=confidence,
+                confidence=0.2 if status == "error_timeout" else 0.0,
                 verification_status=status,
-                proof_of_exploit=None,
-                evidence=["Nuclei completed but found no vulnerabilities"],
-            )
-
-        except asyncio.TimeoutError:
-            logger.warning(
-                "DAST attack timeout for %s after %ds",
-                config.target_endpoint,
-                self.timeout,
-            )
-            return DASTAttackResult(
-                finding_id=config.finding_id,
-                attack_succeeded=False,
-                confidence=0.2,
-                verification_status="error_timeout",
-                proof_of_exploit=None,
-                evidence=[],
-                error=f"Timeout after {self.timeout}s",
-            )
-        except Exception as exc:
-            logger.error(
-                "DAST attack error for %s: %s", config.target_endpoint, exc
-            )
-            return DASTAttackResult(
-                finding_id=config.finding_id,
-                attack_succeeded=False,
-                confidence=0.0,
-                verification_status="error_tooling",
                 proof_of_exploit=None,
                 evidence=[],
                 error=str(exc),
             )
+        finally:
+            if context_id:
+                try:
+                    await zap.remove_context(context_name)
+                except ZapError:
+                    logger.debug("Failed to remove ZAP context %s", context_name)
+
+        try:
+            alerts = await zap.alerts(base_url=_base_url(target_url))
+        except ZapError as exc:
+            status = _status_from_error(exc)
+            return DASTAttackResult(
+                finding_id=config.finding_id,
+                attack_succeeded=False,
+                confidence=0.0,
+                verification_status=status,
+                proof_of_exploit=None,
+                evidence=[],
+                error=str(exc),
+            )
+
+        relevant_alerts = [
+            alert
+            for alert in alerts
+            if _alert_targets_endpoint(alert, target_url)
+            and alert_matches_vuln_type(alert, config.vuln_type)
+        ]
+
+        if relevant_alerts:
+            parsed = parse_zap_alert(relevant_alerts[0], fallback_url=target_url)
+            evidence = parsed.evidence if parsed else []
+            return DASTAttackResult(
+                finding_id=config.finding_id,
+                attack_succeeded=True,
+                confidence=0.95,
+                verification_status="confirmed_exploitable",
+                proof_of_exploit=None,
+                evidence=evidence,
+                matched_at=parsed.matched_at if parsed else target_url,
+                endpoint=parsed.endpoint if parsed else _base_url(target_url),
+                template_id=parsed.template_id if parsed else None,
+                severity=parsed.severity if parsed else None,
+                cve_ids=parsed.cve_ids if parsed else None,
+                cwe_ids=parsed.cwe_ids if parsed else None,
+            )
+
+        status = (
+            "attempted_not_reproduced"
+            if config.endpoint_mapping_confidence >= 0.45
+            else "inconclusive_mapping"
+        )
+        confidence = 0.6 if status == "attempted_not_reproduced" else 0.35
+        return DASTAttackResult(
+            finding_id=config.finding_id,
+            attack_succeeded=False,
+            confidence=confidence,
+            verification_status=status,
+            proof_of_exploit=None,
+            evidence=["ZAP active scan completed with no matching alerts."],
+        )
 
     def map_results_to_findings(
         self,
@@ -699,13 +504,6 @@ class TargetedDASTRunner:
         dast_results: List[DASTAttackResult],
         repo_path: str,
     ) -> Tuple[List[TriagedFinding], int]:
-        """
-        Map DAST results back to triaged findings and update them.
-
-        Returns:
-            Tuple of (updated findings, count of confirmed exploitable)
-        """
-        # Build a mapping of finding_id to DAST result
         result_map: Dict[str, DASTAttackResult] = {}
         for result in dast_results:
             result_map[result.finding_id] = result
@@ -722,7 +520,6 @@ class TargetedDASTRunner:
             if dast_result:
                 finding.dast_verification_status = dast_result.verification_status
                 if dast_result.attack_succeeded:
-                    # DAST confirmed the vulnerability is exploitable
                     finding.confirmed_exploitable = True
                     finding.is_false_positive = False
                     finding.ai_confidence = min(1.0, finding.ai_confidence + 0.2)
@@ -733,16 +530,100 @@ class TargetedDASTRunner:
                     finding.dast_cve_ids = dast_result.cve_ids
                     finding.dast_cwe_ids = dast_result.cwe_ids
                     confirmed_count += 1
-                # Note: We mark all tested findings as dast_verified in the pipeline
 
         return triaged_findings, confirmed_count
 
 
-def _has_cookie_header(headers: Dict[str, str]) -> bool:
-    for key in headers.keys():
-        if key.strip().lower() == "cookie":
-            return True
-    return False
+def _prepare_target_request(config: DASTAttackConfig) -> Tuple[str, Optional[str]]:
+    parsed = urlparse(config.target_endpoint)
+    query = dict(parse_qsl(parsed.query))
+    post_data = None
+
+    if config.http_method.upper() == "GET":
+        if config.target_parameter and config.target_parameter not in query:
+            query[config.target_parameter] = "scanguard"
+        new_query = urlencode(query)
+        target_url = urlunparse(parsed._replace(query=new_query))
+        return target_url, None
+
+    if config.target_parameter:
+        post_data = urlencode({config.target_parameter: "scanguard"})
+    return config.target_endpoint, post_data
+
+
+def _base_url(url: str) -> str:
+    parsed = urlparse(url)
+    if parsed.scheme and parsed.netloc:
+        return f"{parsed.scheme}://{parsed.netloc}"
+    return url
+
+
+def _build_include_regex(url: str) -> str:
+    parsed = urlparse(url)
+    host = re.escape(parsed.netloc)
+    path = re.escape(parsed.path or "/")
+    return rf"^https?://{host}{path}.*"
+
+
+def _alert_targets_endpoint(alert: Dict[str, str], target_url: str) -> bool:
+    alert_url = str(alert.get("url") or "")
+    if not alert_url:
+        return False
+    alert_parsed = urlparse(alert_url)
+    target_parsed = urlparse(target_url)
+    if alert_parsed.scheme != target_parsed.scheme:
+        return False
+    if alert_parsed.netloc != target_parsed.netloc:
+        return False
+    if target_parsed.path and not alert_parsed.path.startswith(target_parsed.path):
+        return False
+    return True
+
+
+async def _apply_auth_headers(
+    zap: ZapDockerSession,
+    auth_headers: Optional[Dict[str, str]],
+    cookies: Optional[str],
+) -> List[str]:
+    descriptions: List[str] = []
+    if not auth_headers and not cookies:
+        return descriptions
+    for header, value in (auth_headers or {}).items():
+        if not header:
+            continue
+        description = f"scanguard-auth-{header}"
+        try:
+            await zap.add_header_rule(description, header, value or "")
+            descriptions.append(description)
+        except ZapError as exc:
+            logger.warning("Failed to set ZAP auth header %s: %s", header, exc)
+    if cookies:
+        description = "scanguard-auth-cookie"
+        try:
+            await zap.add_header_rule(description, "Cookie", cookies)
+            descriptions.append(description)
+        except ZapError as exc:
+            logger.warning("Failed to set ZAP cookies: %s", exc)
+    return descriptions
+
+
+async def _remove_auth_headers(
+    zap: ZapDockerSession, descriptions: List[str]
+) -> None:
+    for description in descriptions:
+        try:
+            await zap.remove_header_rule(description)
+        except ZapError:
+            logger.debug("Failed to remove ZAP header rule %s", description)
+
+
+def _status_from_error(exc: ZapError) -> str:
+    if exc.kind == "timeout":
+        return "error_timeout"
+    blocked = _detect_blocking_status(str(exc))
+    if blocked:
+        return blocked
+    return "error_tooling"
 
 
 def _detect_blocking_status(output: str) -> Optional[str]:

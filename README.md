@@ -8,7 +8,7 @@ ScanGuard AI is a context-aware static analysis platform that runs Semgrep and u
 - LLM triage (OpenRouter or Ollama) to mark false positives and explain exploitability.
 - Prioritization and semantic deduplication (Pinecone optional).
 - Auto-fix previews and GitHub PRs for eligible high-confidence SAST findings.
-- Optional DAST with Nuclei and correlation against SAST findings.
+- Optional DAST with OWASP ZAP (Docker) and correlation against SAST findings.
 - Dependency CVE scanning via Trivy and dependency health checks from registries.
 - Real-time scan updates over Socket.IO and optional PDF scan reports.
 
@@ -23,7 +23,7 @@ ScanGuard AI is a context-aware static analysis platform that runs Semgrep and u
 ## Architecture
 - Backend: FastAPI, SQLAlchemy, Alembic, PostgreSQL, Redis, Socket.IO.
 - Frontend: React 18, TypeScript, Vite, Tailwind, shadcn/ui, TanStack Query.
-- AI and scanning: Semgrep, OpenRouter or Ollama, Pinecone (optional), Nuclei (optional), Trivy (optional).
+- AI and scanning: Semgrep, OpenRouter or Ollama, Pinecone (optional), OWASP ZAP (optional), Trivy (optional).
 
 ## Repo layout
 - backend/ - API, scanning pipeline, models, migrations, and integrations.
@@ -39,7 +39,7 @@ ScanGuard AI is a context-aware static analysis platform that runs Semgrep and u
 - Git
 - PostgreSQL and Redis (or Docker Compose)
 - Semgrep CLI (installed with backend requirements)
-- Optional tools: Nuclei (DAST) and Trivy (dependency CVEs)
+- Optional tools: OWASP ZAP (DAST via Docker) and Trivy (dependency CVEs)
 - Optional services: Supabase (auth + storage), Pinecone, OpenRouter or Ollama
 
 ## Configuration
@@ -55,7 +55,7 @@ Minimum backend variables:
 Optional backend variables include:
 - `PINECONE_API_KEY`, `PINECONE_ENVIRONMENT`
 - `SUPABASE_URL`, `SUPABASE_SERVICE_KEY` (PDF reports)
-- `NUCLEI_*` and `DAST_ALLOWED_HOSTS`
+- `ZAP_*` and `DAST_ALLOWED_HOSTS`
 - `SCAN_MAX_ACTIVE`, `SCAN_MIN_INTERVAL_SECONDS`
 
 ## Local development (PowerShell example)
@@ -109,6 +109,7 @@ Auth: All routes except `/api/health` require `Authorization: Bearer <Supabase J
 ## DAST safety notes
 DAST scans require `scan_type` set to `dast` or `both`, a `target_url`, and `dast_consent=true`.
 Targets must be public http(s) URLs; optional allowlisting via `DAST_ALLOWED_HOSTS`.
+DAST runs OWASP ZAP in Docker and requires a working Docker daemon on the host.
 
 ## Webhooks
 Configure GitHub webhooks to send `push` and `pull_request` events to:

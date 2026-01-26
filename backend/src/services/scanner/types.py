@@ -104,7 +104,7 @@ class DASTAttackConfig:
     """Configuration for attacking a specific SAST finding."""
     finding_id: str
     vuln_type: str  # "sqli", "xss", "command-injection", etc.
-    nuclei_templates: List[str]  # Nuclei CLI args (e.g. ["-tags", "sqli"])
+    vuln_keywords: List[str]  # Keywords to match ZAP alerts for this vulnerability
     target_endpoint: str  # Full URL to attack
     target_parameter: str  # Which parameter is vulnerable
     http_method: str = "GET"
@@ -120,7 +120,7 @@ class DASTAttackResult:
     confidence: float  # 0.0-1.0
     verification_status: str  # One of: not_run, confirmed_exploitable, attempted_not_reproduced, blocked_auth_required, blocked_rate_limit, inconclusive_mapping, error_timeout, error_tooling
     proof_of_exploit: Optional[str] = None  # Curl command
-    evidence: Optional[List[str]] = None  # Raw Nuclei output
+    evidence: Optional[List[str]] = None  # ZAP alert evidence strings
     matched_at: Optional[str] = None
     endpoint: Optional[str] = None
     template_id: Optional[str] = None
