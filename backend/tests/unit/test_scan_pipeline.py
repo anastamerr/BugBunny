@@ -180,3 +180,234 @@ async def test_run_scan_pipeline_persists_findings(db_sessionmaker, tmp_path, mo
     assert scan.semgrep_version == "1.0.0"
     assert len(findings) == 1
     assert findings[0].priority_score == 77
+
+
+@pytest.mark.asyncio
+async def test_dast_verification_persisted_before_zap(db_sessionmaker, monkeypatch):
+    scan_id = uuid.uuid4()
+    user_id = uuid.uuid4()
+    session = db_sessionmaker()
+    session.add(
+        Scan(
+            id=scan_id,
+            user_id=user_id,
+            repo_url=None,
+            branch="main",
+            scan_type="dast",
+            target_url="https://example.com",
+            commit_sha="deadbeef",
+            status="pending",
+            trigger="manual",
+        )
+    )
+    session.commit()
+    session.close()
+
+    status_at_zap = {}
+
+    class DummyVerifier:
+        async def verify_deployment(self, target_url, expected_sha):  # noqa: ANN001
+            return "commit_mismatch", "mismatch"
+
+    class DummyDAST:
+        def __init__(self):
+            self.last_error = None
+
+        def is_available(self):
+            return True
+
+        async def scan(self, target_url, auth_headers=None, cookies=None):  # noqa: ANN001
+            verify = db_sessionmaker()
+            scan = verify.query(Scan).filter(Scan.id == scan_id).first()
+            status_at_zap["value"] = scan.dast_verification_status if scan else None
+            verify.close()
+            return []
+
+    monkeypatch.setattr(scan_pipeline, "CommitVerifier", DummyVerifier)
+    monkeypatch.setattr(scan_pipeline, "DASTRunner", DummyDAST)
+    monkeypatch.setattr(scan_pipeline, "sio", DummySio())
+    monkeypatch.setattr(scan_pipeline, "SessionLocal", lambda: db_sessionmaker())
+
+    await scan_pipeline.run_scan_pipeline(
+        scan_id=scan_id,
+        repo_url=None,
+        branch="main",
+        scan_type="dast",
+        target_url="https://example.com",
+    )
+
+    assert status_at_zap["value"] == "commit_mismatch"
+
+
+@pytest.mark.asyncio
+async def test_dast_manual_url_sets_unverified_before_zap(db_sessionmaker, monkeypatch):
+    scan_id = uuid.uuid4()
+    user_id = uuid.uuid4()
+    session = db_sessionmaker()
+    session.add(
+        Scan(
+            id=scan_id,
+            user_id=user_id,
+            repo_url=None,
+            branch="main",
+            scan_type="dast",
+            target_url="https://example.com",
+            commit_sha=None,
+            status="pending",
+            trigger="manual",
+        )
+    )
+    session.commit()
+    session.close()
+
+    status_at_zap = {}
+
+    class DummyVerifier:
+        async def verify_deployment(self, target_url, expected_sha):  # noqa: ANN001
+            raise AssertionError("verify_deployment should not be called without commit_sha")
+
+    class DummyDAST:
+        def __init__(self):
+            self.last_error = None
+
+        def is_available(self):
+            return True
+
+        async def scan(self, target_url, auth_headers=None, cookies=None):  # noqa: ANN001
+            verify = db_sessionmaker()
+            scan = verify.query(Scan).filter(Scan.id == scan_id).first()
+            status_at_zap["value"] = scan.dast_verification_status if scan else None
+            verify.close()
+            return []
+
+    monkeypatch.setattr(scan_pipeline, "CommitVerifier", DummyVerifier)
+    monkeypatch.setattr(scan_pipeline, "DASTRunner", DummyDAST)
+    monkeypatch.setattr(scan_pipeline, "sio", DummySio())
+    monkeypatch.setattr(scan_pipeline, "SessionLocal", lambda: db_sessionmaker())
+
+    await scan_pipeline.run_scan_pipeline(
+        scan_id=scan_id,
+        repo_url=None,
+        branch="main",
+        scan_type="dast",
+        target_url="https://example.com",
+    )
+
+    assert status_at_zap["value"] == "unverified_url"
+
+
+@pytest.mark.asyncio
+async def test_dast_failure_keeps_verification_status(db_sessionmaker, monkeypatch):
+    scan_id = uuid.uuid4()
+    user_id = uuid.uuid4()
+    session = db_sessionmaker()
+    session.add(
+        Scan(
+            id=scan_id,
+            user_id=user_id,
+            repo_url=None,
+            branch="main",
+            scan_type="dast",
+            target_url="https://example.com",
+            commit_sha="deadbeef",
+            status="pending",
+            trigger="manual",
+        )
+    )
+    session.commit()
+    session.close()
+
+    class DummyVerifier:
+        async def verify_deployment(self, target_url, expected_sha):  # noqa: ANN001
+            return "verified", "ok"
+
+    class DummyDAST:
+        def __init__(self):
+            self.last_error = None
+
+        def is_available(self):
+            return True
+
+        async def scan(self, target_url, auth_headers=None, cookies=None):  # noqa: ANN001
+            raise RuntimeError("zap failed")
+
+    monkeypatch.setattr(scan_pipeline, "CommitVerifier", DummyVerifier)
+    monkeypatch.setattr(scan_pipeline, "DASTRunner", DummyDAST)
+    monkeypatch.setattr(scan_pipeline, "sio", DummySio())
+    monkeypatch.setattr(scan_pipeline, "SessionLocal", lambda: db_sessionmaker())
+
+    await scan_pipeline.run_scan_pipeline(
+        scan_id=scan_id,
+        repo_url=None,
+        branch="main",
+        scan_type="dast",
+        target_url="https://example.com",
+    )
+
+    verify = db_sessionmaker()
+    scan = verify.query(Scan).filter(Scan.id == scan_id).first()
+    verify.close()
+
+    assert scan is not None
+    assert scan.dast_verification_status == "verified"
+
+
+@pytest.mark.asyncio
+async def test_dast_upgrades_unverified_before_zap(db_sessionmaker, monkeypatch):
+    scan_id = uuid.uuid4()
+    user_id = uuid.uuid4()
+    session = db_sessionmaker()
+    session.add(
+        Scan(
+            id=scan_id,
+            user_id=user_id,
+            repo_url=None,
+            branch="main",
+            scan_type="dast",
+            target_url="https://example.com",
+            commit_sha="deadbeef",
+            dast_verification_status="unverified_url",
+            status="pending",
+            trigger="manual",
+        )
+    )
+    session.commit()
+    session.close()
+
+    called = {"verify": False}
+    status_at_zap = {}
+
+    class DummyVerifier:
+        async def verify_deployment(self, target_url, expected_sha):  # noqa: ANN001
+            called["verify"] = True
+            return "verified", "ok"
+
+    class DummyDAST:
+        def __init__(self):
+            self.last_error = None
+
+        def is_available(self):
+            return True
+
+        async def scan(self, target_url, auth_headers=None, cookies=None):  # noqa: ANN001
+            verify = db_sessionmaker()
+            scan = verify.query(Scan).filter(Scan.id == scan_id).first()
+            status_at_zap["value"] = scan.dast_verification_status if scan else None
+            verify.close()
+            return []
+
+    monkeypatch.setattr(scan_pipeline, "CommitVerifier", DummyVerifier)
+    monkeypatch.setattr(scan_pipeline, "DASTRunner", DummyDAST)
+    monkeypatch.setattr(scan_pipeline, "sio", DummySio())
+    monkeypatch.setattr(scan_pipeline, "SessionLocal", lambda: db_sessionmaker())
+
+    await scan_pipeline.run_scan_pipeline(
+        scan_id=scan_id,
+        repo_url=None,
+        branch="main",
+        scan_type="dast",
+        target_url="https://example.com",
+    )
+
+    assert called["verify"] is True
+    assert status_at_zap["value"] == "verified"

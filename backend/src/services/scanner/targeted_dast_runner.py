@@ -104,7 +104,7 @@ class TargetedDASTRunner:
         sast_findings: List[TriagedFinding],
         repo_path: str,
         commit_sha: Optional[str] = None,
-        scan_id: Optional[str] = None,
+        scan_id: Optional[uuid.UUID] = None,
     ) -> List[DASTAttackResult]:
         """
         Attack each SAST finding to confirm exploitability.
@@ -123,11 +123,9 @@ class TargetedDASTRunner:
 
         # Verify deployment matches scanned commit if SHA provided
         if commit_sha and scan_id:
-            verification_status, message = await self.commit_verifier.verify_deployment(
-                target_base_url, commit_sha
-            )
+            should_verify = True
 
-            # Update scan record with verification status
+            # Skip verification if pipeline already set a scan-level status.
             try:
                 from ...db.session import SessionLocal
                 from ...models import Scan
@@ -135,24 +133,53 @@ class TargetedDASTRunner:
                 db = SessionLocal()
                 try:
                     scan = db.query(Scan).filter(Scan.id == scan_id).first()
-                    if scan:
-                        scan.dast_verification_status = verification_status
-                        db.commit()
+                    final_statuses = {"verified", "commit_mismatch", "verification_error"}
+                    if scan and scan.dast_verification_status in final_statuses:
+                        should_verify = False
                         logger.info(
-                            f"Scan {scan_id} verification: {verification_status} - {message}"
+                            "Skipping deployment verification for scan %s (status already %s)",
+                            scan_id,
+                            scan.dast_verification_status,
                         )
                 finally:
                     db.close()
             except Exception as e:
-                logger.error(f"Failed to update verification status: {e}")
+                logger.error("Failed to read verification status: %s", e)
 
-            # Log warnings for mismatches
-            if verification_status == "commit_mismatch":
-                logger.error(
-                    f"⚠️ DAST running against mismatched deployment! {message}"
-                )
-            elif verification_status == "verification_error":
-                logger.warning(f"⚠️ Could not verify deployment: {message}")
+            if should_verify:
+                try:
+                    verification_status, message = await self.commit_verifier.verify_deployment(
+                        target_base_url, commit_sha
+                    )
+                except Exception as e:
+                    verification_status, message = "verification_error", f"Verification failed: {e}"
+
+                # Best-effort: persist status (pipeline should normally do this first)
+                try:
+                    from ...db.session import SessionLocal
+                    from ...models import Scan
+
+                    db = SessionLocal()
+                    try:
+                        scan = db.query(Scan).filter(Scan.id == scan_id).first()
+                        if scan:
+                            scan.dast_verification_status = verification_status
+                            db.commit()
+                            logger.info(
+                                "Scan %s verification: %s - %s",
+                                scan_id,
+                                verification_status,
+                                message,
+                            )
+                    finally:
+                        db.close()
+                except Exception as e:
+                    logger.error("Failed to update verification status: %s", e)
+
+                if verification_status == "commit_mismatch":
+                    logger.error("⚠️ DAST running against mismatched deployment! %s", message)
+                elif verification_status == "verification_error":
+                    logger.warning("⚠️ Could not verify deployment: %s", message)
 
         attack_configs: List[DASTAttackConfig] = []
         route_map = self._build_route_map(repo_path)

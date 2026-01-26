@@ -17,6 +17,7 @@ from .correlation import correlate_findings
 from .context_extractor import ContextExtractor
 from .finding_aggregator import FindingAggregator
 from .dast_runner import DASTRunner
+from .commit_verifier import CommitVerifier
 from .deployment_service import DeploymentService
 from .targeted_dast_runner import TargetedDASTRunner
 from .dependency_health_scanner import DependencyHealthScanner
@@ -53,6 +54,7 @@ async def run_scan_pipeline(
     pinecone = _get_pinecone()
     aggregator = FindingAggregator(pinecone)
     dast_runner = DASTRunner()
+    commit_verifier = CommitVerifier()
     dependency_scanner = DependencyScanner()
     dependency_health_scanner = DependencyHealthScanner()
     deployment_service = DeploymentService()
@@ -252,6 +254,51 @@ async def run_scan_pipeline(
                 {"scan_id": str(scan_id), "status": "scanning", "phase": "DAST"},
             )
 
+            # Ensure scan-level DAST verification status is persisted before any ZAP work.
+            existing_status = None
+            try:
+                current_scan = db.query(Scan).filter(Scan.id == scan_id).first()
+                if current_scan:
+                    existing_status = current_scan.dast_verification_status
+            except Exception as exc:
+                logger.error("Failed to read existing DAST verification status: %s", exc)
+
+            final_statuses = {"verified", "commit_mismatch", "verification_error"}
+            if existing_status in final_statuses:
+                logger.info(
+                    "Skipping DAST verification for scan %s (status already %s)",
+                    scan_id,
+                    existing_status,
+                )
+            else:
+                if commit_sha:
+                    try:
+                        verification_status, message = (
+                            await commit_verifier.verify_deployment(
+                                target_url, commit_sha
+                            )
+                        )
+                    except Exception as exc:
+                        verification_status = "verification_error"
+                        message = f"Verification failed: {exc}"
+                    _update_scan(
+                        db,
+                        scan_id,
+                        dast_verification_status=verification_status,
+                    )
+                    logger.info(
+                        "DAST verification for scan %s: %s - %s",
+                        scan_id,
+                        verification_status,
+                        message,
+                    )
+                else:
+                    _update_scan(
+                        db,
+                        scan_id,
+                        dast_verification_status="unverified_url",
+                    )
+
             # Run targeted DAST if we have SAST findings to verify
             if triaged:
                 await sio.emit(
@@ -268,7 +315,7 @@ async def run_scan_pipeline(
                     triaged,
                     str(repo_path) if repo_path else "",
                     commit_sha=commit_sha,
-                    scan_id=str(scan_id),
+                    scan_id=scan_id,
                 )
                 # Map results back to findings
                 triaged, dast_confirmed_count = targeted_dast_runner.map_results_to_findings(
@@ -630,6 +677,7 @@ def _update_scan(
     commit_sha: Optional[str] = None,
     commit_url: Optional[str] = None,
     target_url: Optional[str] = None,
+    dast_verification_status: Optional[str] = None,
     total_findings: Optional[int] = None,
     filtered_findings: Optional[int] = None,
     dast_findings: Optional[int] = None,
@@ -653,6 +701,8 @@ def _update_scan(
         scan.commit_url = commit_url
     if target_url is not None:
         scan.target_url = target_url
+    if dast_verification_status is not None:
+        scan.dast_verification_status = dast_verification_status
     if total_findings is not None:
         scan.total_findings = total_findings
     if filtered_findings is not None:
