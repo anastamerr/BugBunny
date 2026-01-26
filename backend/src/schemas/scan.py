@@ -122,15 +122,22 @@ class ScanCreate(BaseModel):
 
     @model_validator(mode="after")
     def _require_repo(self) -> "ScanCreate":
+        settings = get_settings()
         if self.scan_type in {ScanType.sast, ScanType.both}:
             if not self.repo_url and not self.repo_id:
                 raise ValueError("repo_url or repo_id is required for SAST scans")
+        if self.scan_type == ScanType.both and not settings.dast_deploy_script:
+            raise ValueError(
+                "DAST verification for 'both' scans requires DAST_DEPLOY_SCRIPT to deploy the SAST commit"
+            )
         if self.scan_type in {ScanType.dast, ScanType.both}:
             if not self.target_url:
-                raise ValueError("target_url is required for DAST scans")
+                if self.scan_type == ScanType.dast:
+                    raise ValueError("target_url is required for DAST scans")
             if not self.dast_consent:
                 raise ValueError("dast_consent is required for DAST scans")
-            self.target_url = _normalize_target_url(self.target_url)
+            if self.target_url:
+                self.target_url = _normalize_target_url(self.target_url)
         if self.scan_type == ScanType.dast:
             self.dependency_health_enabled = False
         return self

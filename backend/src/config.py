@@ -50,6 +50,7 @@ class Settings(BaseSettings):
     nuclei_exclude_tags: Optional[str] = None
     nuclei_protocols: Optional[str] = None
     dast_allowed_hosts: Optional[str] = None
+    dast_deploy_script: Optional[str] = None
     scan_max_active: Optional[int] = None
     scan_min_interval_seconds: Optional[int] = None
     dependency_health_use_llm: bool = True

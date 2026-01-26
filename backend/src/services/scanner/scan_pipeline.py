@@ -14,6 +14,7 @@ from .correlation import correlate_findings
 from .context_extractor import ContextExtractor
 from .finding_aggregator import FindingAggregator
 from .dast_runner import DASTRunner
+from .deployment_service import DeploymentService
 from .targeted_dast_runner import TargetedDASTRunner
 from .dependency_health_scanner import DependencyHealthScanner
 from .dependency_scanner import DependencyScanner
@@ -50,10 +51,12 @@ async def run_scan_pipeline(
     dast_runner = DASTRunner()
     dependency_scanner = DependencyScanner()
     dependency_health_scanner = DependencyHealthScanner()
+    deployment_service = DeploymentService()
 
     try:
         scan = db.query(Scan).filter(Scan.id == scan_id).first()
         github_token = None
+        commit_sha = scan.commit_sha if scan else None
         if scan and scan.user_id:
             settings = (
                 db.query(UserSettings)
@@ -96,6 +99,23 @@ async def run_scan_pipeline(
                 branch=branch,
                 github_token=github_token,
             )
+            commit_sha = await fetcher.get_commit_sha(repo_path) or commit_sha
+            if commit_sha:
+                commit_url = _build_commit_url(repo_url, commit_sha)
+                _update_scan(
+                    db,
+                    scan_id,
+                    commit_sha=commit_sha,
+                    commit_url=commit_url,
+                )
+                await sio.emit(
+                    "scan.updated",
+                    {
+                        "scan_id": str(scan_id),
+                        "commit_sha": commit_sha,
+                        "commit_url": commit_url,
+                    },
+                )
             if resolved_branch != branch:
                 branch = resolved_branch
                 _update_scan(db, scan_id, branch=resolved_branch)
@@ -163,6 +183,36 @@ async def run_scan_pipeline(
         # Track which findings were tested by targeted DAST
         targeted_dast_results = []
         dast_confirmed_count = 0
+
+        if scan_type == "both":
+            if not repo_path:
+                raise RuntimeError(
+                    "SAST repository is required to deploy for DAST verification."
+                )
+            if not commit_sha:
+                raise RuntimeError(
+                    "Commit SHA is required to deploy for DAST verification."
+                )
+            if not deployment_service.is_configured():
+                raise RuntimeError(
+                    "DAST verification requires DAST_DEPLOY_SCRIPT to deploy the SAST commit."
+                )
+
+            await _wait_for_resume(db, scan_id)
+            _update_scan(db, scan_id, status="scanning")
+            await sio.emit(
+                "scan.updated",
+                {"scan_id": str(scan_id), "status": "scanning", "phase": "deploy"},
+            )
+
+            target_url = await deployment_service.deploy(
+                repo_path, commit_sha, branch
+            )
+            _update_scan(db, scan_id, target_url=target_url)
+            await sio.emit(
+                "scan.updated",
+                {"scan_id": str(scan_id), "target_url": target_url},
+            )
 
         if scan_type in {"dast", "both"} and target_url:
             await _wait_for_resume(db, scan_id)
@@ -525,6 +575,9 @@ def _update_scan(
     scan_id: uuid.UUID,
     status: Optional[str] = None,
     branch: Optional[str] = None,
+    commit_sha: Optional[str] = None,
+    commit_url: Optional[str] = None,
+    target_url: Optional[str] = None,
     total_findings: Optional[int] = None,
     filtered_findings: Optional[int] = None,
     dast_findings: Optional[int] = None,
@@ -542,6 +595,12 @@ def _update_scan(
         scan.status = status
     if branch is not None:
         scan.branch = branch
+    if commit_sha is not None:
+        scan.commit_sha = commit_sha
+    if commit_url is not None:
+        scan.commit_url = commit_url
+    if target_url is not None:
+        scan.target_url = target_url
     if total_findings is not None:
         scan.total_findings = total_findings
     if filtered_findings is not None:
@@ -573,6 +632,17 @@ def _get_pinecone() -> Optional["PineconeService"]:
         return PineconeService()
     except Exception:
         return None
+
+
+def _build_commit_url(repo_url: str | None, commit_sha: str | None) -> str | None:
+    if not repo_url or not commit_sha:
+        return None
+    repo = repo_url.strip().rstrip("/")
+    if repo.endswith(".git"):
+        repo = repo[:-4]
+    if not repo:
+        return None
+    return f"{repo}/commit/{commit_sha}"
 
 
 def _normalize_dast_severity(value: str) -> str:
