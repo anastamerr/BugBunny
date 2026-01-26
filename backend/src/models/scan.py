@@ -57,6 +57,18 @@ class Scan(Base):
     filtered_findings = Column(Integer, nullable=False, default=0)
     dast_findings = Column(Integer, nullable=False, default=0)
     dast_confirmed_count = Column(Integer, nullable=False, default=0)
+    dast_verification_status = Column(
+        Enum(
+            "verified",
+            "unverified_url",
+            "commit_mismatch",
+            "verification_error",
+            "not_applicable",
+            name="dast_verification_status_enum",
+        ),
+        nullable=False,
+        default="not_applicable",
+    )
     error_message = Column(Text, nullable=True)
     pr_number = Column(Integer, nullable=True)
     pr_url = Column(String, nullable=True)

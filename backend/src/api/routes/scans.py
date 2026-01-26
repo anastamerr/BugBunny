@@ -99,16 +99,25 @@ async def create_scan(
                     detail=f"Scan rate limit exceeded. Try again in {remaining}s.",
                 )
 
+    # Determine initial DAST verification status
+    dast_verification_status = "not_applicable"
+    if payload.target_url and payload.scan_type.value in ["sast", "both"]:
+        # Manual target_url provided - will need verification
+        if payload.scan_type.value != "both":
+            dast_verification_status = "unverified_url"
+
     scan = Scan(
         user_id=current_user.id,
         repo_id=repo_id,
         repo_url=repo_url,
         branch=branch,
+        commit_sha=payload.commit_sha,
         scan_type=payload.scan_type.value,
         dependency_health_enabled=payload.dependency_health_enabled,
         target_url=payload.target_url,
         dast_auth_headers=payload.dast_auth_headers,
         dast_cookies=payload.dast_cookies,
+        dast_verification_status=dast_verification_status,
         status="pending",
         trigger="manual",
         total_findings=0,
@@ -126,6 +135,7 @@ async def create_scan(
         scan.branch,
         scan.scan_type,
         scan.target_url,
+        payload.commit_sha,
     )
     background_tasks.add_task(
         sio.emit,

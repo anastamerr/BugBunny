@@ -113,6 +113,7 @@ class ScanCreate(BaseModel):
     repo_url: Optional[str] = None
     repo_id: Optional[uuid.UUID] = None
     branch: Optional[str] = "main"
+    commit_sha: Optional[str] = None
     scan_type: ScanType = ScanType.sast
     dependency_health_enabled: bool = True
     target_url: Optional[str] = None
@@ -182,6 +183,7 @@ class ScanRead(BaseModel):
     filtered_findings: int
     dast_findings: int
     dast_confirmed_count: int = 0
+    dast_verification_status: str = "not_applicable"
     error_message: Optional[str] = None
     pr_number: Optional[int] = None
     pr_url: Optional[str] = None

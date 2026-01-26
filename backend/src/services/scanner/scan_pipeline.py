@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import uuid
 from typing import TYPE_CHECKING, Optional
 
 from sqlalchemy.orm import Session
+
+logger = logging.getLogger(__name__)
 
 from ...db.session import SessionLocal
 from ...models import Finding, Scan, UserSettings
@@ -39,6 +42,7 @@ async def run_scan_pipeline(
     branch: str,
     scan_type: str = "sast",
     target_url: str | None = None,
+    requested_commit_sha: str | None = None,
 ) -> None:
     db = SessionLocal()
     repo_path = None
@@ -99,7 +103,33 @@ async def run_scan_pipeline(
                 branch=branch,
                 github_token=github_token,
             )
-            commit_sha = await fetcher.get_commit_sha(repo_path) or commit_sha
+
+            # Get actual commit SHA from cloned repo
+            actual_commit_sha = await fetcher.get_commit_sha(repo_path)
+
+            # If user requested specific SHA, verify and checkout
+            if requested_commit_sha:
+                if requested_commit_sha != actual_commit_sha:
+                    logger.warning(
+                        f"Requested commit {requested_commit_sha} does not match branch HEAD {actual_commit_sha}. "
+                        f"Branch may have moved. Attempting to checkout requested SHA."
+                    )
+                    # Try to checkout the requested commit
+                    try:
+                        await fetcher.checkout_commit(repo_path, requested_commit_sha)
+                        commit_sha = requested_commit_sha
+                        logger.info(f"Successfully checked out commit {commit_sha}")
+                    except Exception as e:
+                        logger.error(f"Failed to checkout requested commit {requested_commit_sha}: {e}")
+                        # Fall back to current HEAD
+                        commit_sha = actual_commit_sha or commit_sha
+                else:
+                    # Requested SHA matches HEAD
+                    commit_sha = requested_commit_sha
+            else:
+                # No specific SHA requested, use current HEAD
+                commit_sha = actual_commit_sha or commit_sha
+
             if commit_sha:
                 commit_url = _build_commit_url(repo_url, commit_sha)
                 _update_scan(
@@ -237,6 +267,8 @@ async def run_scan_pipeline(
                     target_url,
                     triaged,
                     str(repo_path) if repo_path else "",
+                    commit_sha=commit_sha,
+                    scan_id=str(scan_id),
                 )
                 # Map results back to findings
                 triaged, dast_confirmed_count = targeted_dast_runner.map_results_to_findings(
@@ -534,6 +566,22 @@ async def run_scan_pipeline(
             total_findings=total_findings,
             filtered_findings=filtered_findings,
         )
+
+        # Log metrics for observability
+        scan = db.query(Scan).filter(Scan.id == scan_id).first()
+        if scan:
+            logger.info(
+                f"Scan {scan_id} completed",
+                extra={
+                    "scan_id": str(scan_id),
+                    "scan_type": scan_type,
+                    "commit_sha": commit_sha,
+                    "dast_verification_status": scan.dast_verification_status,
+                    "manual_target_url": bool(target_url and scan_type != "both"),
+                    "total_findings": total_findings,
+                    "filtered_findings": filtered_findings,
+                },
+            )
 
         await sio.emit(
             "scan.completed",

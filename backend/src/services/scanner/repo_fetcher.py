@@ -78,6 +78,14 @@ class RepoFetcher:
         sha = output.strip()
         return sha if sha else None
 
+    async def checkout_commit(self, repo_path: Path, commit_sha: str) -> None:
+        """Checkout a specific commit SHA."""
+        cmd = [self.git_path, "-C", str(repo_path), "checkout", commit_sha]
+        try:
+            await asyncio.to_thread(self._run_command_capture, cmd)
+        except Exception as e:
+            raise RuntimeError(f"Failed to checkout commit {commit_sha}: {e}") from e
+
     def detect_languages(self, repo_path: Path) -> List[str]:
         languages, _ = self.analyze_repo(repo_path)
         return languages

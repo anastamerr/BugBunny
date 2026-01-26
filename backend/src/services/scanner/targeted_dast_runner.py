@@ -24,6 +24,7 @@ from typing import Dict, List, Optional, Tuple
 from urllib.parse import urljoin
 
 from ...config import get_settings
+from .commit_verifier import CommitVerifier
 from .route_parser import RouteParser
 from .types import DASTAttackConfig, DASTAttackResult, TriagedFinding
 
@@ -56,6 +57,7 @@ class TargetedDASTRunner:
         self.auth_headers = self._normalize_headers(auth_headers)
         self.cookies = cookies
         self.route_parser = RouteParser()
+        self.commit_verifier = CommitVerifier()
 
     def _normalize_headers(
         self, headers: Optional[Dict[str, str]]
@@ -133,6 +135,8 @@ class TargetedDASTRunner:
         target_base_url: str,
         sast_findings: List[TriagedFinding],
         repo_path: str,
+        commit_sha: Optional[str] = None,
+        scan_id: Optional[str] = None,
     ) -> List[DASTAttackResult]:
         """
         Attack each SAST finding to confirm exploitability.
@@ -141,11 +145,46 @@ class TargetedDASTRunner:
             target_base_url: Live app URL (e.g., https://app.example.com)
             sast_findings: Vulnerabilities found by SAST (after AI filtering)
             repo_path: Path to cloned repo (to map findings to endpoints)
+            commit_sha: Expected commit SHA for verification (optional)
+            scan_id: Scan ID for updating verification status (optional)
 
         Returns:
             List of DAST results showing which findings are exploitable
         """
         self.last_error = None
+
+        # Verify deployment matches scanned commit if SHA provided
+        if commit_sha and scan_id:
+            verification_status, message = await self.commit_verifier.verify_deployment(
+                target_base_url, commit_sha
+            )
+
+            # Update scan record with verification status
+            try:
+                from ...db.session import SessionLocal
+                from ...models import Scan
+
+                db = SessionLocal()
+                try:
+                    scan = db.query(Scan).filter(Scan.id == scan_id).first()
+                    if scan:
+                        scan.dast_verification_status = verification_status
+                        db.commit()
+                        logger.info(
+                            f"Scan {scan_id} verification: {verification_status} - {message}"
+                        )
+                finally:
+                    db.close()
+            except Exception as e:
+                logger.error(f"Failed to update verification status: {e}")
+
+            # Log warnings for mismatches
+            if verification_status == "commit_mismatch":
+                logger.error(
+                    f"⚠️ DAST running against mismatched deployment! {message}"
+                )
+            elif verification_status == "verification_error":
+                logger.warning(f"⚠️ Could not verify deployment: {message}")
 
         attack_configs: List[DASTAttackConfig] = []
         route_map = self._build_route_map(repo_path)
