@@ -18,6 +18,7 @@ from .deployment_service import DeploymentService
 from .targeted_dast_runner import TargetedDASTRunner
 from .dependency_health_scanner import DependencyHealthScanner
 from .dependency_scanner import DependencyScanner
+from .project_memory import ProjectMemoryBuilder
 from .repo_fetcher import RepoFetcher
 from .semgrep_runner import SemgrepRunner
 
@@ -545,6 +546,21 @@ async def run_scan_pipeline(
                 "dast_findings": len(dast_findings),
             },
         )
+
+        if pinecone is not None:
+            try:
+                scan_record = db.query(Scan).filter(Scan.id == scan_id).first()
+                if scan_record is not None:
+                    findings = (
+                        db.query(Finding)
+                        .filter(Finding.scan_id == scan_id)
+                        .all()
+                    )
+                    ProjectMemoryBuilder().upsert_for_scan(
+                        pinecone, scan_record, findings
+                    )
+            except Exception:
+                pass
     except ScanCancelled:
         return
     except Exception as exc:

@@ -21,8 +21,15 @@ from ...services.intelligence.llm_service import (
     OpenRouterService,
     get_llm_service,
 )
+from ...services.scanner.project_memory import extract_repo_full_name, redact_text
 
 router = APIRouter(prefix="/chat", tags=["chat"])
+
+BUG_SEMANTIC_TOP_K = 5
+BUG_SEMANTIC_SCORE_THRESHOLD = 0.72
+PROJECT_MEMORY_TOP_K = 6
+PROJECT_MEMORY_SCORE_THRESHOLD = 0.68
+MAX_SECTION_CHARS = 1200
 
 
 def _truncate(text: str, max_len: int = 500) -> str:
@@ -80,6 +87,116 @@ def _finding_brief(finding: Finding) -> str:
     )
 
 
+def _repo_context_from_bug(bug: BugReport | None) -> dict[str, str]:
+    if bug is None:
+        return {}
+    labels = bug.labels if isinstance(bug.labels, dict) else {}
+    repo_full_name = None
+    repo_url = None
+    if isinstance(labels, dict):
+        repo_full_name = labels.get("repo") or labels.get("repo_full_name")
+        repo_url = labels.get("repo_url")
+    if not repo_full_name and isinstance(bug.bug_id, str):
+        if bug.bug_id.startswith("gh:") and "#" in bug.bug_id:
+            repo_full_name = bug.bug_id.split("gh:", 1)[1].split("#", 1)[0]
+    if not repo_url and repo_full_name:
+        repo_url = f"https://github.com/{repo_full_name}"
+    context = {}
+    if repo_full_name:
+        context["repo_full_name"] = repo_full_name
+    if repo_url:
+        context["repo_url"] = repo_url
+    return context
+
+
+def _repo_context_from_scan(scan: Scan | None) -> dict[str, str]:
+    if scan is None:
+        return {}
+    repo_url = scan.repo_url
+    repo_full_name = extract_repo_full_name(repo_url)
+    context = {}
+    if repo_full_name:
+        context["repo_full_name"] = repo_full_name
+    if repo_url:
+        context["repo_url"] = repo_url
+    return context
+
+
+def _build_repo_filter(context: dict[str, str]) -> dict | None:
+    if not context:
+        return None
+    if context.get("repo_full_name"):
+        return {"repo_full_name": {"$eq": context["repo_full_name"]}}
+    if context.get("repo_url"):
+        return {"repo_url": {"$eq": context["repo_url"]}}
+    return None
+
+
+def _build_project_memory_filter(
+    repo_filter: dict | None,
+    scan: Scan | None,
+    finding: Finding | None,
+) -> dict | None:
+    if not repo_filter:
+        return None
+    scoped = dict(repo_filter)
+    if scan is not None:
+        scoped["scan_id"] = {"$eq": str(scan.id)}
+        return scoped
+    if finding is not None:
+        if finding.rule_id:
+            scoped["rule_id"] = {"$eq": finding.rule_id}
+        elif finding.endpoint:
+            scoped["endpoint"] = {"$eq": finding.endpoint}
+        elif finding.file_path:
+            scoped["file_path"] = {"$eq": finding.file_path}
+    return scoped
+
+
+def _score_ok(match: object, threshold: float) -> bool:
+    score = getattr(match, "score", None)
+    try:
+        return float(score or 0.0) >= threshold
+    except Exception:
+        return False
+
+
+def _cap_lines(lines: list[str], max_chars: int) -> list[str]:
+    capped: list[str] = []
+    total = 0
+    for line in lines:
+        line_len = len(line) + 1
+        if total + line_len > max_chars:
+            break
+        capped.append(line)
+        total += line_len
+    return capped
+
+
+def _cap_bug_list(bugs: list[BugReport], max_chars: int) -> list[BugReport]:
+    lines = [_bug_brief(b) for b in bugs]
+    capped = _cap_lines(lines, max_chars)
+    return bugs[: len(capped)]
+
+
+def _project_memory_brief(match: object) -> str:
+    metadata = getattr(match, "metadata", None) or {}
+    summary = metadata.get("summary") or metadata.get("text") or ""
+    summary = redact_text(str(summary))
+    summary = _truncate(summary, 260)
+    doc_type = metadata.get("doc_type") or "memory"
+    severity = metadata.get("severity") or "n/a"
+    scan_id = metadata.get("scan_id") or "n/a"
+    score = getattr(match, "score", None)
+    score_label = "n/a"
+    if score is not None:
+        try:
+            score_label = f"{float(score):.2f}"
+        except Exception:
+            score_label = "n/a"
+    return f"- [{doc_type}] severity={severity} scan={scan_id} score={score_label} :: {summary}"
+
+
 @lru_cache
 def _get_pinecone_safe() -> Optional[PineconeService]:
     try:
@@ -130,6 +247,7 @@ def _build_context(
     recent_scans: list[Scan],
     finding_queue: list[Finding],
     scan_findings: list[Finding],
+    project_memory: list[str],
 ) -> str:
     parts: list[str] = []
 
@@ -141,6 +259,7 @@ def _build_context(
             f"- Recent bugs shown: {len(recent_bugs)}",
             f"- High-priority bugs shown: {len(bug_queue)}",
             f"- Semantic-matched bugs shown: {len(semantic_bugs)}",
+            f"- Project memory matches shown: {len(project_memory)}",
         ]
     )
     parts.append(snapshot)
@@ -209,9 +328,12 @@ def _build_context(
 
     if semantic_bugs:
         parts.append(
-            "SEMANTICALLY RELEVANT BUGS (from embeddings):\n"
+            "SEMANTIC BUG MATCHES:\n"
             + "\n".join(_bug_brief(b) for b in semantic_bugs)
         )
+
+    if project_memory:
+        parts.append("PROJECT MEMORY:\n" + "\n".join(project_memory))
 
     return "\n\n".join(parts).strip()
 
@@ -222,6 +344,7 @@ def _build_focus_context(
     finding: Finding | None,
     *,
     scan_findings: list[Finding],
+    project_memory: list[str],
 ) -> str:
     parts: list[str] = []
 
@@ -290,6 +413,9 @@ def _build_focus_context(
                 ]
             )
         )
+
+    if project_memory:
+        parts.append("PROJECT MEMORY:\n" + "\n".join(project_memory))
 
     return "\n\n".join(part for part in parts if part).strip()
 
@@ -392,29 +518,61 @@ def _prepare_chat_prompt(
             .all()
         )
 
+    repo_context: dict[str, str] = {}
+    if scan is not None:
+        repo_context = _repo_context_from_scan(scan)
+    if not repo_context and bug is not None:
+        repo_context = _repo_context_from_bug(bug)
+    if not repo_context and recent_scans:
+        repo_context = _repo_context_from_scan(recent_scans[0])
+
+    repo_filter = _build_repo_filter(repo_context)
+
+    pinecone = _get_pinecone_safe()
+
     # Semantic retrieval: pull relevant bugs for the user's question (optional).
     semantic_bugs: list[BugReport] = []
-    if not focus_mode:
-        pinecone = _get_pinecone_safe()
-        if pinecone is not None and payload.message.strip():
-            try:
-                matches = pinecone.find_similar_bugs(payload.message, "", top_k=5)
-                ids: list[uuid.UUID] = []
-                for m in matches or []:
-                    mid = getattr(m, "id", None)
-                    if isinstance(mid, str):
-                        try:
-                            ids.append(uuid.UUID(mid))
-                        except ValueError:
-                            continue
-                if ids:
-                    semantic_bugs = (
-                        db.query(BugReport)
-                        .filter(BugReport.id.in_(ids))
-                        .all()
-                    )
-            except Exception:
-                semantic_bugs = []
+    if not focus_mode and pinecone is not None and payload.message.strip():
+        try:
+            matches = pinecone.find_similar_bugs(
+                payload.message,
+                "",
+                top_k=BUG_SEMANTIC_TOP_K,
+                metadata_filter=repo_filter,
+            )
+            matches = [m for m in matches or [] if _score_ok(m, BUG_SEMANTIC_SCORE_THRESHOLD)]
+            matches = matches[:BUG_SEMANTIC_TOP_K]
+            ids: list[uuid.UUID] = []
+            for m in matches:
+                mid = getattr(m, "id", None)
+                if isinstance(mid, str):
+                    try:
+                        ids.append(uuid.UUID(mid))
+                    except ValueError:
+                        continue
+            if ids:
+                semantic_bugs = db.query(BugReport).filter(BugReport.id.in_(ids)).all()
+                semantic_bugs = _cap_bug_list(semantic_bugs, MAX_SECTION_CHARS)
+        except Exception:
+            semantic_bugs = []
+
+    project_memory: list[str] = []
+    if pinecone is not None and repo_filter and payload.message.strip():
+        try:
+            memory_filter = repo_filter
+            if focus_mode:
+                memory_filter = _build_project_memory_filter(repo_filter, scan, finding)
+            matches = pinecone.find_project_memory(
+                payload.message,
+                top_k=PROJECT_MEMORY_TOP_K,
+                metadata_filter=memory_filter,
+            )
+            matches = [m for m in matches or [] if _score_ok(m, PROJECT_MEMORY_SCORE_THRESHOLD)]
+            matches = matches[:PROJECT_MEMORY_TOP_K]
+            memory_lines = [_project_memory_brief(m) for m in matches]
+            project_memory = _cap_lines(memory_lines, MAX_SECTION_CHARS)
+        except Exception:
+            project_memory = []
 
     if focus_mode:
         context = _build_focus_context(
@@ -422,6 +580,7 @@ def _prepare_chat_prompt(
             scan,
             finding,
             scan_findings=scan_findings,
+            project_memory=project_memory,
         )
     else:
         context = _build_context(
@@ -434,6 +593,7 @@ def _prepare_chat_prompt(
             recent_scans=recent_scans,
             finding_queue=finding_q,
             scan_findings=scan_findings,
+            project_memory=project_memory,
         )
 
     system = (
