@@ -125,6 +125,31 @@ async def _docker_logs(container_id: str, tail: int = 200) -> str:
     output = (result.stdout or result.stderr or "").strip()
     return output
 
+
+async def _container_running(container_id: str) -> bool:
+    result = await asyncio.to_thread(
+        subprocess.run,
+        ["docker", "inspect", "-f", "{{.State.Running}}", container_id],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return (result.stdout or "").strip().lower() == "true"
+
+
+async def _wait_for_port(host: str, port: int, deadline: float) -> bool:
+    while time.monotonic() < deadline:
+        try:
+            def _connect_once() -> None:
+                sock = socket.create_connection((host, port), 1.0)
+                sock.close()
+
+            await asyncio.to_thread(_connect_once)
+            return True
+        except OSError:
+            await asyncio.sleep(1)
+    return False
+
 async def _probe_target(
     target_url: str,
     *,
@@ -244,18 +269,26 @@ class ZapRunner:
 
             container_id = (result.stdout or "").strip()
             base_url = f"http://127.0.0.1:{port}"
-            client = httpx.AsyncClient(base_url=base_url, timeout=30)
+            client = httpx.AsyncClient(
+                base_url=base_url, timeout=httpx.Timeout(10.0, connect=2.0)
+            )
+
+            port_ready = await _wait_for_port(
+                "127.0.0.1", port, time.monotonic() + min(30, timeout_seconds)
+            )
+            if not port_ready and container_id and not await _container_running(container_id):
+                log_snip = await _docker_logs(container_id)
+                if log_snip:
+                    logger.error("ZAP container exited early. Logs:\n%s", log_snip)
+                raise ZapError("ZAP container exited before API became ready", "tool_error")
 
             try:
                 await _wait_ready(client, self.settings.zap_api_key, timeout_seconds)
             except ZapError as exc:
-                log_snip = ""
                 if container_id:
                     log_snip = await _docker_logs(container_id)
-                if log_snip:
-                    raise ZapError(
-                        f"{exc} | ZAP logs:\n{log_snip}", exc.kind
-                    ) from exc
+                    if log_snip:
+                        logger.error("ZAP readiness failed. Logs:\n%s", log_snip)
                 raise
 
             rule_descriptions = await _apply_auth_rules(
@@ -303,11 +336,11 @@ class ZapRunner:
                 await _remove_auth_rules(client, self.settings.zap_api_key, rule_descriptions)
         except ZapError as exc:
             error_kind = exc.kind
-            error_message = str(exc)
+            error_message = str(exc) or "ZAP tooling error."
         except Exception as exc:  # pragma: no cover - defensive
             logger.exception("ZAP scan failed")
             error_kind = "tool_error"
-            error_message = str(exc)
+            error_message = str(exc) or exc.__class__.__name__
         finally:
             if client:
                 await client.aclose()
