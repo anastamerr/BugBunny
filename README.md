@@ -85,6 +85,65 @@ curl -X POST http://localhost:8000/api/scans `
   -d '{"repo_url":"https://github.com/OWASP/WebGoat","branch":"main"}'
 ```
 
+## SAST/DAST v2 (clean rebuild)
+These endpoints are isolated from the legacy pipeline and are meant for the new SAST + DAST verification flow.
+
+UI:
+- Open `backend/src/scanguard_scan/frontend_min/index.html` directly, or
+- Visit `http://localhost:8000/ui` (served by the backend).
+
+SAST only:
+```bash
+curl -X POST http://localhost:8000/api/v2/scans/sast \
+  -H "Content-Type: application/json" \
+  -d '{
+    "repo_url": "https://github.com/org/repo",
+    "branch": "main",
+    "github_token": "optional",
+    "semgrep_config": "auto",
+    "timeout_seconds": 600
+  }'
+```
+
+DAST only:
+```bash
+curl -X POST http://localhost:8000/api/v2/scans/dast \
+  -H "Content-Type: application/json" \
+  -d '{
+    "target_url": "http://webgoat:8080/WebGoat",
+    "auth": {
+      "headers": {"Authorization": "Bearer ..."},
+      "cookies": "JSESSIONID=...; other=..."
+    },
+    "zap": {
+      "timeout_seconds": 1800,
+      "spider_minutes": 5,
+      "active_scan_minutes": 20
+    }
+  }'
+```
+
+BOTH (SAST + DAST + correlation):
+```bash
+curl -X POST http://localhost:8000/api/v2/scans/both \
+  -H "Content-Type: application/json" \
+  -d '{
+    "repo_url": "https://github.com/OWASP/WebGoat",
+    "branch": "main",
+    "target_url": "http://webgoat:8080/WebGoat",
+    "github_token": "optional",
+    "auth": {"headers": {}, "cookies": ""},
+    "semgrep_config": "auto",
+    "timeouts": {"sast_seconds": 900, "dast_seconds": 1800}
+  }'
+```
+
+Results:
+```bash
+curl http://localhost:8000/api/v2/scans/<scan_id>
+curl http://localhost:8000/api/v2/scans/<scan_id>/results
+```
+
 ## Docker
 ```powershell
 docker compose up --build

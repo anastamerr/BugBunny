@@ -16,6 +16,7 @@ from .api.routes.webhooks import router as webhooks_router
 from .config import get_settings
 from .integrations.github_backfill import backfill_github_issues
 from .realtime import sio
+from .scanguard_scan.api import router as scans_v2_router, ui_router as scans_v2_ui_router
 
 settings = get_settings()
 
@@ -49,6 +50,8 @@ app.include_router(repositories_router, prefix=settings.api_prefix)
 app.include_router(scans_router, prefix=settings.api_prefix)
 app.include_router(findings_router, prefix=settings.api_prefix)
 app.include_router(webhooks_router, prefix=settings.api_prefix)
+app.include_router(scans_v2_router, prefix=settings.api_prefix)
+app.include_router(scans_v2_ui_router)
 
 @app.get("/")
 async def root() -> dict:

@@ -1,0 +1,272 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ScanGuard v2 - SAST + DAST</title>
+    <style>
+      @import url("https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600&display=swap");
+
+      :root {
+        --bg: #0f172a;
+        --panel: #111c33;
+        --panel-2: #0b1324;
+        --accent: #ffb454;
+        --accent-2: #6ee7b7;
+        --text: #e2e8f0;
+        --muted: #9fb0c8;
+        --danger: #fca5a5;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        font-family: "Space Grotesk", "Segoe UI", sans-serif;
+        color: var(--text);
+        background: radial-gradient(circle at top left, #1f2a44, #0b1020 55%, #090d18);
+        min-height: 100vh;
+      }
+
+      header {
+        padding: 32px 24px 12px;
+        text-align: center;
+      }
+
+      header h1 {
+        margin: 0 0 8px;
+        font-weight: 600;
+        letter-spacing: 0.5px;
+      }
+
+      header p {
+        margin: 0;
+        color: var(--muted);
+      }
+
+      main {
+        display: grid;
+        grid-template-columns: minmax(280px, 1fr) minmax(320px, 1.2fr);
+        gap: 20px;
+        padding: 20px 24px 40px;
+      }
+
+      @media (max-width: 900px) {
+        main {
+          grid-template-columns: 1fr;
+        }
+      }
+
+      .panel {
+        background: linear-gradient(140deg, var(--panel), var(--panel-2));
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 16px;
+        padding: 20px;
+        box-shadow: 0 10px 30px rgba(5, 8, 16, 0.4);
+      }
+
+      label {
+        display: block;
+        font-size: 0.9rem;
+        margin-bottom: 8px;
+        color: var(--muted);
+      }
+
+      input,
+      textarea {
+        width: 100%;
+        background: rgba(15, 23, 42, 0.6);
+        border: 1px solid rgba(148, 163, 184, 0.2);
+        color: var(--text);
+        padding: 10px 12px;
+        border-radius: 10px;
+        font-family: inherit;
+        font-size: 0.95rem;
+      }
+
+      textarea {
+        min-height: 120px;
+        resize: vertical;
+      }
+
+      .field {
+        margin-bottom: 16px;
+      }
+
+      .button-row {
+        display: flex;
+        gap: 12px;
+        flex-wrap: wrap;
+      }
+
+      button {
+        border: none;
+        padding: 10px 16px;
+        border-radius: 999px;
+        font-family: inherit;
+        font-weight: 600;
+        cursor: pointer;
+        transition: transform 0.2s ease, box-shadow 0.2s ease;
+      }
+
+      button.primary {
+        background: var(--accent);
+        color: #0b1020;
+      }
+
+      button.secondary {
+        background: transparent;
+        color: var(--text);
+        border: 1px solid rgba(255, 255, 255, 0.2);
+      }
+
+      button:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 6px 12px rgba(0, 0, 0, 0.2);
+      }
+
+      .status-grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 12px;
+        margin: 16px 0;
+      }
+
+      .stat {
+        background: rgba(15, 23, 42, 0.5);
+        border-radius: 12px;
+        padding: 10px 12px;
+      }
+
+      .stat h4 {
+        margin: 0 0 4px;
+        font-size: 0.8rem;
+        color: var(--muted);
+      }
+
+      .stat p {
+        margin: 0;
+        font-size: 1.1rem;
+      }
+
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 12px;
+      }
+
+      th,
+      td {
+        text-align: left;
+        padding: 8px 6px;
+        border-bottom: 1px solid rgba(148, 163, 184, 0.2);
+        font-size: 0.9rem;
+        vertical-align: top;
+      }
+
+      th {
+        color: var(--muted);
+        font-weight: 500;
+      }
+
+      .pill {
+        display: inline-flex;
+        align-items: center;
+        padding: 4px 10px;
+        border-radius: 999px;
+        font-size: 0.75rem;
+        background: rgba(110, 231, 183, 0.15);
+        color: var(--accent-2);
+      }
+
+      .pill.warn {
+        background: rgba(252, 165, 165, 0.12);
+        color: var(--danger);
+      }
+
+      .disclaimer {
+        margin-top: 12px;
+        font-size: 0.85rem;
+        color: var(--muted);
+      }
+
+      .error {
+        color: var(--danger);
+        font-size: 0.9rem;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>ScanGuard v2</h1>
+      <p>SAST + DAST verification. Unverified does not mean safe.</p>
+    </header>
+
+    <main>
+      <section class="panel">
+        <h2>Run a Scan</h2>
+        <div class="field">
+          <label for="repoUrl">Repo URL</label>
+          <input id="repoUrl" placeholder="https://github.com/org/repo" />
+        </div>
+        <div class="field">
+          <label for="targetUrl">Target URL</label>
+          <input id="targetUrl" placeholder="http://webgoat:8080/WebGoat" />
+        </div>
+        <div class="field">
+          <label for="authHeaders">Auth Headers (JSON)</label>
+          <textarea id="authHeaders" placeholder='{"Authorization": "Bearer ..."}'></textarea>
+        </div>
+        <div class="field">
+          <label for="authCookies">Cookies</label>
+          <input id="authCookies" placeholder="JSESSIONID=...; other=..." />
+        </div>
+        <div class="button-row">
+          <button class="secondary" id="runSast">Run SAST</button>
+          <button class="secondary" id="runDast">Run DAST</button>
+          <button class="primary" id="runBoth">Run BOTH</button>
+        </div>
+        <p class="disclaimer">
+          Unverified does not mean safe. DAST can fail due to auth, coverage, or state.
+        </p>
+        <p class="error" id="formError"></p>
+      </section>
+
+      <section class="panel">
+        <h2>Results</h2>
+        <div id="scanMeta">
+          <p>Status: <span id="scanStatus">idle</span></p>
+          <p>Scan ID: <span id="scanId">-</span></p>
+        </div>
+        <div class="status-grid">
+          <div class="stat">
+            <h4>SAST Findings</h4>
+            <p id="sastCount">0</p>
+          </div>
+          <div class="stat">
+            <h4>DAST Alerts</h4>
+            <p id="dastCount">0</p>
+          </div>
+          <div class="stat">
+            <h4>Confirmed</h4>
+            <p id="confirmedCount">0</p>
+          </div>
+        </div>
+
+        <h3>Correlation</h3>
+        <div id="correlationTable"></div>
+
+        <h3>Confirmed Alerts</h3>
+        <div id="confirmedAlerts"></div>
+      </section>
+    </main>
+
+    <script>
+      const script = document.createElement("script");
+      script.src = window.location.protocol === "file:" ? "app.js" : "/ui/app.js";
+      document.body.appendChild(script);
+    </script>
+  </body>
+</html>
