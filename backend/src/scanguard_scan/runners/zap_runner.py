@@ -114,6 +114,17 @@ def _cookies_header(cookies: str) -> str:
     return cookies.strip()
 
 
+async def _docker_logs(container_id: str, tail: int = 200) -> str:
+    result = await asyncio.to_thread(
+        subprocess.run,
+        ["docker", "logs", "--tail", str(tail), container_id],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    output = (result.stdout or result.stderr or "").strip()
+    return output
+
 async def _probe_target(
     target_url: str,
     *,
@@ -235,7 +246,17 @@ class ZapRunner:
             base_url = f"http://127.0.0.1:{port}"
             client = httpx.AsyncClient(base_url=base_url, timeout=30)
 
-            await _wait_ready(client, self.settings.zap_api_key, timeout_seconds)
+            try:
+                await _wait_ready(client, self.settings.zap_api_key, timeout_seconds)
+            except ZapError as exc:
+                log_snip = ""
+                if container_id:
+                    log_snip = await _docker_logs(container_id)
+                if log_snip:
+                    raise ZapError(
+                        f"{exc} | ZAP logs:\n{log_snip}", exc.kind
+                    ) from exc
+                raise
 
             rule_descriptions = await _apply_auth_rules(
                 client, self.settings.zap_api_key, headers, cookies
@@ -324,7 +345,7 @@ class ZapRunner:
 async def _wait_ready(
     client: httpx.AsyncClient, api_key: Optional[str], timeout_seconds: int
 ) -> None:
-    deadline = time.monotonic() + min(60, timeout_seconds)
+    deadline = time.monotonic() + min(120, timeout_seconds)
     last_error: Optional[str] = None
     while time.monotonic() < deadline:
         try:
@@ -352,12 +373,19 @@ async def _zap_action(
 
 
 async def _zap_request(
-    client: httpx.AsyncClient, api_key: Optional[str], path: str, params: Dict[str, Any] | None = None
+    client: httpx.AsyncClient,
+    api_key: Optional[str],
+    path: str,
+    params: Dict[str, Any] | None = None,
 ) -> Dict[str, Any]:
     payload = dict(params or {})
     if api_key:
         payload["apikey"] = api_key
-    response = await client.get(path, params=payload)
+    try:
+        response = await client.get(path, params=payload)
+    except httpx.RequestError as exc:
+        detail = str(exc) or exc.__class__.__name__
+        raise ZapError(f"ZAP API request failed: {detail}", "tool_error") from exc
     if response.status_code != 200:
         raise ZapError(
             f"ZAP API returned {response.status_code}: {response.text}", "tool_error"
