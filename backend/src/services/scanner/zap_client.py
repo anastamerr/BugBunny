@@ -5,6 +5,7 @@ import logging
 import shutil
 import socket
 import subprocess
+import sys
 import time
 import uuid
 from typing import Any, Dict, List, Optional
@@ -45,6 +46,7 @@ class ZapDockerSession:
         api_key: Optional[str],
         timeout_seconds: int,
         request_timeout_seconds: Optional[int] = None,
+        extra_hosts: Optional[list[str]] = None,
     ) -> None:
         self.image = image
         self.api_key = api_key
@@ -52,6 +54,7 @@ class ZapDockerSession:
         self.request_timeout_seconds = request_timeout_seconds or min(
             30, max(5, timeout_seconds // 6)
         )
+        self.extra_hosts = extra_hosts or []
         self.container_id: Optional[str] = None
         self.container_name: Optional[str] = None
         self.base_url: Optional[str] = None
@@ -79,18 +82,27 @@ class ZapDockerSession:
             f"{port}:8080",
             "--name",
             container_name,
-            self.image,
-            "zap.sh",
-            "-daemon",
-            "-host",
-            "0.0.0.0",
-            "-port",
-            "8080",
-            "-config",
-            "api.addrs.addr.name=.*",
-            "-config",
-            "api.addrs.addr.regex=true",
         ]
+        for host_entry in self.extra_hosts:
+            if host_entry:
+                cmd.extend(["--add-host", host_entry])
+        if sys.platform.startswith("linux"):
+            cmd.extend(["--add-host", "host.docker.internal:host-gateway"])
+        cmd.extend(
+            [
+                self.image,
+                "zap.sh",
+                "-daemon",
+                "-host",
+                "0.0.0.0",
+                "-port",
+                "8080",
+                "-config",
+                "api.addrs.addr.name=.*",
+                "-config",
+                "api.addrs.addr.regex=true",
+            ]
+        )
         if self.api_key:
             cmd.extend(["-config", f"api.key={self.api_key}"])
         else:
@@ -144,7 +156,7 @@ class ZapDockerSession:
         self.base_url = None
 
     async def _wait_ready(self) -> None:
-        deadline = time.monotonic() + min(180, self.timeout_seconds)
+        deadline = time.monotonic() + self.timeout_seconds
         last_error: Optional[str] = None
         while time.monotonic() < deadline:
             try:
@@ -309,3 +321,59 @@ class ZapDockerSession:
                 return
             await asyncio.sleep(2.0)
         raise ZapError(f"ZAP {component} scan timed out", "timeout")
+
+    async def get_urls(self, base_url: Optional[str] = None) -> List[str]:
+        """Get all URLs discovered by the spider.
+
+        Args:
+            base_url: Optional base URL to filter results.
+
+        Returns:
+            List of discovered URL strings.
+        """
+        params: Dict[str, Any] = {}
+        if base_url:
+            params["baseurl"] = base_url
+        data = await self._view("core", "urls", params)
+        urls = data.get("urls")
+        if isinstance(urls, list):
+            return [str(url) for url in urls]
+        return []
+
+    async def get_messages(
+        self, base_url: Optional[str] = None, start: int = 0, count: int = 5000
+    ) -> List[Dict[str, Any]]:
+        """Get HTTP messages (requests/responses) from the history.
+
+        Args:
+            base_url: Optional base URL to filter results.
+            start: Starting index.
+            count: Number of messages to return.
+
+        Returns:
+            List of message dictionaries with request/response details.
+        """
+        params: Dict[str, Any] = {"start": str(start), "count": str(count)}
+        if base_url:
+            params["baseurl"] = base_url
+        data = await self._view("core", "messages", params)
+        messages = data.get("messages")
+        if isinstance(messages, list):
+            return messages
+        return []
+
+    async def get_params(self, site: str) -> List[Dict[str, Any]]:
+        """Get all parameters found for a given site.
+
+        Args:
+            site: The site URL (e.g., http://host.docker.internal:8080).
+
+        Returns:
+            List of parameter dictionaries with name, type, and URL info.
+        """
+        params: Dict[str, Any] = {"site": site}
+        data = await self._view("params", "params", params)
+        parameters = data.get("Parameters")
+        if isinstance(parameters, list):
+            return parameters
+        return []

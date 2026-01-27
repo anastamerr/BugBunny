@@ -20,7 +20,7 @@ from urllib.parse import parse_qsl, urlencode, urljoin, urlparse, urlunparse
 from ...config import get_settings
 from .commit_verifier import CommitVerifier
 from .route_parser import RouteParser
-from .types import DASTAttackConfig, DASTAttackResult, TriagedFinding
+from .types import DASTAttackConfig, DASTAttackResult, DiscoveredEndpoint, TriagedFinding
 from .zap_client import ZapDockerSession, ZapError, is_docker_available
 from .zap_parser import (
     VULN_KEYWORDS,
@@ -28,6 +28,7 @@ from .zap_parser import (
     classify_vulnerability,
     parse_zap_alert,
 )
+from .zap_utils import dockerize_target_url, rewrite_finding_for_display
 
 logger = logging.getLogger(__name__)
 
@@ -77,6 +78,348 @@ class TargetedDASTRunner:
         if not path.exists():
             return {}
         return self.route_parser.parse_routes(path)
+
+    async def _spider_discover_routes(
+        self,
+        zap: ZapDockerSession,
+        target_base_url: str,
+    ) -> List[DiscoveredEndpoint]:
+        """
+        Spider the target URL to discover all available endpoints.
+
+        Args:
+            zap: Active ZAP session.
+            target_base_url: Base URL to spider (e.g., http://host:8080/WebGoat).
+
+        Returns:
+            List of discovered endpoints with URLs, methods, and parameters.
+        """
+        logger.info("Spidering target to discover routes: %s", target_base_url)
+
+        try:
+            # Run spider with reasonable depth
+            spider_id = await zap.spider_scan(
+                target_base_url,
+                max_children=self.settings.zap_max_depth,
+                recurse=True,
+                subtree_only=False,
+            )
+            await zap.wait_spider(spider_id)
+        except ZapError as exc:
+            logger.warning("Spider discovery failed: %s", exc)
+            return []
+
+        # Get all discovered URLs
+        try:
+            discovered_urls = await zap.get_urls(base_url=_base_url(target_base_url))
+        except ZapError as exc:
+            logger.warning("Failed to get discovered URLs: %s", exc)
+            return []
+
+        if not discovered_urls:
+            logger.warning("Spider found no URLs at %s", target_base_url)
+            return []
+
+        logger.info("Spider discovered %d URLs", len(discovered_urls))
+
+        # Get parameters for the target site
+        site_url = _base_url(target_base_url)
+        try:
+            params_data = await zap.get_params(site_url)
+        except ZapError:
+            params_data = []
+
+        # Build a map of URL -> parameters
+        url_params: Dict[str, Dict[str, List[str]]] = {}
+        for param in params_data:
+            param_url = str(param.get("url") or "")
+            param_name = str(param.get("name") or "")
+            param_type = str(param.get("type") or "").lower()
+
+            if not param_url or not param_name:
+                continue
+
+            if param_url not in url_params:
+                url_params[param_url] = {"query": [], "form": []}
+
+            if param_type in ("url", "query", "get"):
+                url_params[param_url]["query"].append(param_name)
+            elif param_type in ("form", "post", "body"):
+                url_params[param_url]["form"].append(param_name)
+            else:
+                # Default to query param
+                url_params[param_url]["query"].append(param_name)
+
+        # Get HTTP messages to determine methods and extract more info
+        try:
+            messages = await zap.get_messages(base_url=site_url, count=5000)
+        except ZapError:
+            messages = []
+
+        # Build method map from messages
+        url_methods: Dict[str, str] = {}
+        for msg in messages:
+            req_header = str(msg.get("requestHeader") or "")
+            if req_header:
+                parts = req_header.split(" ", 2)
+                if len(parts) >= 2:
+                    method = parts[0].upper()
+                    msg_url = str(msg.get("url") or "")
+                    if msg_url:
+                        url_methods[msg_url] = method
+
+        # Convert to DiscoveredEndpoint objects
+        endpoints: List[DiscoveredEndpoint] = []
+        seen_paths: set = set()
+
+        for url in discovered_urls:
+            parsed = urlparse(url)
+            path = parsed.path or "/"
+
+            # Deduplicate by path (we might get same path with different query params)
+            if path in seen_paths:
+                # Update existing endpoint with additional params if found
+                for ep in endpoints:
+                    if ep.path == path:
+                        params_info = url_params.get(url, {"query": [], "form": []})
+                        for qp in params_info["query"]:
+                            if qp not in ep.query_params:
+                                ep.query_params.append(qp)
+                        for fp in params_info["form"]:
+                            if fp not in ep.form_params:
+                                ep.form_params.append(fp)
+                        break
+                continue
+
+            seen_paths.add(path)
+
+            # Extract query params from URL
+            query_params: List[str] = []
+            if parsed.query:
+                for pair in parsed.query.split("&"):
+                    if "=" in pair:
+                        param_name = pair.split("=", 1)[0]
+                        if param_name and param_name not in query_params:
+                            query_params.append(param_name)
+
+            # Add params from ZAP's param discovery
+            params_info = url_params.get(url, {"query": [], "form": []})
+            for qp in params_info["query"]:
+                if qp not in query_params:
+                    query_params.append(qp)
+
+            form_params = params_info["form"]
+
+            # Extract path segments that look like IDs or dynamic values
+            path_segments = self._extract_dynamic_segments(path)
+
+            # Determine HTTP method (default to GET)
+            method = url_methods.get(url, "GET")
+
+            endpoints.append(
+                DiscoveredEndpoint(
+                    url=url,
+                    path=path,
+                    method=method,
+                    query_params=query_params,
+                    form_params=form_params,
+                    path_segments=path_segments,
+                )
+            )
+
+        logger.info(
+            "Discovered %d unique endpoints with %d total parameters",
+            len(endpoints),
+            sum(len(ep.query_params) + len(ep.form_params) for ep in endpoints),
+        )
+
+        return endpoints
+
+    def _extract_dynamic_segments(self, path: str) -> List[str]:
+        """Extract path segments that look like dynamic values (IDs, numbers, etc.)."""
+        segments: List[str] = []
+        parts = path.strip("/").split("/")
+
+        for part in parts:
+            # Check for numeric IDs
+            if re.match(r"^\d+$", part):
+                segments.append(part)
+            # Check for UUIDs
+            elif re.match(
+                r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+                part,
+                re.IGNORECASE,
+            ):
+                segments.append(part)
+            # Check for alphanumeric IDs (e.g., attack9, lesson5)
+            elif re.match(r"^[a-zA-Z]+\d+$", part):
+                segments.append(part)
+
+        return segments
+
+    def _fuzzy_match_finding_to_endpoint(
+        self,
+        finding: TriagedFinding,
+        discovered_endpoints: List[DiscoveredEndpoint],
+    ) -> Tuple[Optional[DiscoveredEndpoint], float]:
+        """
+        Match a SAST finding to a discovered endpoint.
+
+        Scoring factors:
+        - Vuln type keyword in URL path (e.g., "sql" in path for SQLi finding): +0.3
+        - Numeric ID match (e.g., "Lesson9" matches "/attack9"): +0.2
+        - Parameter name match (e.g., "account" param in both): +0.3
+        - Class/file name fragment match: +0.2
+
+        Returns:
+            Tuple of (best matching endpoint or None, confidence score).
+            Returns None if score < 0.4.
+        """
+        if not discovered_endpoints:
+            return None, 0.0
+
+        # Extract info from the finding
+        rule_id = finding.rule_id.lower()
+        rule_message = (finding.rule_message or "").lower()
+        file_path = finding.file_path.lower()
+        code_snippet = (finding.code_snippet or "").lower()
+        context_snippet = (finding.context_snippet or "").lower()
+        combined_code = f"{code_snippet} {context_snippet}"
+
+        # Determine vulnerability type
+        vuln_type = classify_vulnerability(f"{rule_id} {rule_message}")
+
+        # Extract file name without extension
+        file_name = Path(finding.file_path).stem.lower()
+
+        # Extract numbers from file name (e.g., "SqlInjectionLesson9" -> ["9"])
+        file_numbers = re.findall(r"\d+", file_name)
+
+        # Extract parameter names from code
+        finding_params = self._extract_params_from_code(combined_code)
+
+        # Extract class/function name fragments
+        class_name = (finding.class_name or "").lower()
+        function_name = (finding.function_name or "").lower()
+        name_fragments = set()
+        if class_name:
+            # Split camelCase/PascalCase into words
+            name_fragments.update(re.findall(r"[a-z]+", class_name))
+        if function_name:
+            name_fragments.update(re.findall(r"[a-z]+", function_name))
+
+        best_match: Optional[DiscoveredEndpoint] = None
+        best_score = 0.0
+
+        for endpoint in discovered_endpoints:
+            score = 0.0
+            path_lower = endpoint.path.lower()
+
+            # 1. Vuln type keyword in URL path (+0.3)
+            if vuln_type:
+                vuln_keywords = VULN_KEYWORDS.get(vuln_type, [])
+                # Check for vuln-related keywords in the path
+                for keyword in vuln_keywords:
+                    # Remove spaces and check
+                    keyword_simple = keyword.replace(" ", "").replace("-", "")
+                    if keyword_simple in path_lower.replace("-", "").replace("/", ""):
+                        score += 0.3
+                        break
+                # Also check for common shortened versions
+                vuln_short = vuln_type.replace("-", "")
+                if vuln_short in path_lower.replace("-", ""):
+                    score += 0.3
+
+            # 2. Numeric ID match (+0.2)
+            if file_numbers:
+                # Extract numbers from path segments
+                for segment in endpoint.path_segments:
+                    segment_numbers = re.findall(r"\d+", segment)
+                    if any(n in file_numbers for n in segment_numbers):
+                        score += 0.2
+                        break
+                # Also check the full path for matching numbers
+                path_numbers = re.findall(r"\d+", path_lower)
+                if any(n in file_numbers for n in path_numbers):
+                    score += 0.1  # Lower weight for general path number match
+
+            # 3. Parameter name match (+0.3)
+            all_endpoint_params = set(
+                p.lower() for p in endpoint.query_params + endpoint.form_params
+            )
+            if finding_params and all_endpoint_params:
+                matching_params = finding_params & all_endpoint_params
+                if matching_params:
+                    # Full score if key param matches
+                    score += 0.3
+                    logger.debug(
+                        "Parameter match: %s in endpoint %s",
+                        matching_params,
+                        endpoint.path,
+                    )
+
+            # 4. Class/file name fragment match (+0.2)
+            if name_fragments:
+                path_words = set(re.findall(r"[a-z]+", path_lower))
+                matching_fragments = name_fragments & path_words
+                if matching_fragments:
+                    score += 0.2
+
+            # Also check file name fragments against path
+            file_name_words = set(re.findall(r"[a-z]+", file_name))
+            path_words = set(re.findall(r"[a-z]+", path_lower))
+            if file_name_words & path_words:
+                score += 0.1
+
+            if score > best_score:
+                best_score = score
+                best_match = endpoint
+
+        # Only return a match if confidence is >= 0.4
+        if best_score >= 0.4 and best_match:
+            logger.info(
+                "Fuzzy matched finding '%s' to endpoint '%s' (score: %.2f)",
+                finding.file_path,
+                best_match.path,
+                best_score,
+            )
+            return best_match, best_score
+
+        logger.debug(
+            "No confident match for finding '%s' (best score: %.2f)",
+            finding.file_path,
+            best_score,
+        )
+        return None, best_score
+
+    def _extract_params_from_code(self, code: str) -> set:
+        """Extract parameter names from code snippets."""
+        params: set = set()
+
+        patterns = [
+            r"request\.args\.get\(['\"](\w+)['\"]",
+            r"request\.form\.get\(['\"](\w+)['\"]",
+            r"request\.values\.get\(['\"](\w+)['\"]",
+            r"request\.json\.get\(['\"](\w+)['\"]",
+            r"request\.GET\.get\(['\"](\w+)['\"]",
+            r"request\.POST\.get\(['\"](\w+)['\"]",
+            r"request\.data\.get\(['\"](\w+)['\"]",
+            r'request\.getParameter\(["\'](\w+)["\']',
+            r"req\.query\.(\w+)",
+            r"req\.body\.(\w+)",
+            r"req\.params\.(\w+)",
+            r"params\[:['\"]?(\w+)",
+            r'@RequestParam.*?["\'](\w+)["\']',
+            r'@PathVariable.*?["\'](\w+)["\']',
+            r'get\(["\'](\w+)["\']',
+            r'getParameter\(["\'](\w+)["\']',
+        ]
+
+        for pattern in patterns:
+            matches = re.findall(pattern, code, re.IGNORECASE)
+            params.update(m.lower() for m in matches)
+
+        return params
 
     def _resolve_endpoint(
         self,
@@ -181,29 +524,9 @@ class TargetedDASTRunner:
                 elif verification_status == "verification_error":
                     logger.warning("⚠️ Could not verify deployment: %s", message)
 
-        attack_configs: List[DASTAttackConfig] = []
-        route_map = self._build_route_map(repo_path)
-
-        for finding in sast_findings:
-            if finding.is_false_positive:
-                continue
-
-            config = self._generate_attack_config(
-                finding,
-                target_base_url,
-                repo_path,
-                route_map=route_map,
-            )
-            if config:
-                attack_configs.append(config)
-            else:
-                logger.info(
-                    "No DAST attack available for rule: %s in %s",
-                    finding.rule_id,
-                    finding.file_path,
-                )
-
-        if not attack_configs:
+        # Filter out false positives early
+        valid_findings = [f for f in sast_findings if not f.is_false_positive]
+        if not valid_findings:
             logger.info("No SAST findings suitable for DAST verification")
             return []
 
@@ -211,37 +534,117 @@ class TargetedDASTRunner:
             self.last_error = "Docker is not available for running ZAP."
             return [
                 DASTAttackResult(
-                    finding_id=config.finding_id,
+                    finding_id=f"{f.rule_id}:{f.file_path}:{f.line_start}",
                     attack_succeeded=False,
                     confidence=0.0,
-                    verification_status="error_tooling",
+                    verification_status="inconclusive",
                     proof_of_exploit=None,
                     evidence=[],
                     error=self.last_error,
                 )
-                for config in attack_configs
+                for f in valid_findings
             ]
 
+        effective_base_url, original_netloc, docker_netloc = dockerize_target_url(
+            target_base_url
+        )
         timeout_seconds = min(self.settings.zap_timeout_seconds, self.timeout)
+        route_map = self._build_route_map(repo_path)
 
+        attack_configs: List[DASTAttackConfig] = []
+        missing_configs: List[DASTAttackResult] = []
         try:
             async with ZapDockerSession(
                 image=self.settings.zap_docker_image,
                 api_key=self.settings.zap_api_key,
                 timeout_seconds=timeout_seconds,
                 request_timeout_seconds=self.settings.zap_request_timeout_seconds,
+                extra_hosts=_parse_extra_hosts(self.settings.zap_docker_extra_hosts),
             ) as zap:
                 rule_descriptions = await _apply_auth_headers(
                     zap, self.auth_headers, self.cookies
                 )
                 try:
+                    # Spider-first: Discover all routes before attacking
+                    logger.info("Starting spider-first route discovery...")
+                    discovered_endpoints = await self._spider_discover_routes(
+                        zap, effective_base_url
+                    )
+
+                    if discovered_endpoints:
+                        logger.info(
+                            "Spider discovered %d endpoints, will use fuzzy matching",
+                            len(discovered_endpoints),
+                        )
+                    else:
+                        logger.warning(
+                            "Spider found no endpoints, falling back to file-based mapping"
+                        )
+
+                    # Generate attack configs with spider-matched endpoints
+                    for finding in valid_findings:
+                        config = self._generate_attack_config(
+                            finding,
+                            effective_base_url,
+                            repo_path,
+                            route_map=route_map,
+                            discovered_endpoints=discovered_endpoints,
+                        )
+                        if config:
+                            attack_configs.append(config)
+                        else:
+                            logger.info(
+                                "No DAST attack available for rule: %s in %s",
+                                finding.rule_id,
+                                finding.file_path,
+                            )
+                            missing_configs.append(
+                                DASTAttackResult(
+                                    finding_id=f"{finding.rule_id}:{finding.file_path}:{finding.line_start}",
+                                    attack_succeeded=False,
+                                    confidence=0.3,
+                                    verification_status="inconclusive",
+                                    proof_of_exploit=None,
+                                    evidence=[
+                                        "No mapped endpoint or vulnerability type available for targeted DAST.",
+                                    ],
+                                )
+                            )
+
+                    if not attack_configs:
+                        logger.info("No attack configs generated for findings")
+                        return missing_configs
+
+                    # Execute attacks
                     results: List[DASTAttackResult] = []
                     for config in attack_configs:
-                        results.append(await self._execute_attack(zap, config))
+                        results.append(
+                            await self._execute_attack(
+                                zap,
+                                config,
+                                original_netloc=original_netloc,
+                                docker_netloc=docker_netloc,
+                            )
+                        )
+
+                    results.extend(missing_configs)
                 finally:
                     await _remove_auth_headers(zap, rule_descriptions)
         except ZapError as exc:
             self.last_error = str(exc)
+            if not attack_configs and not missing_configs:
+                return [
+                    DASTAttackResult(
+                        finding_id=f"{f.rule_id}:{f.file_path}:{f.line_start}",
+                        attack_succeeded=False,
+                        confidence=0.0,
+                        verification_status="inconclusive",
+                        proof_of_exploit=None,
+                        evidence=[],
+                        error=str(exc),
+                    )
+                    for f in valid_findings
+                ]
             return [
                 DASTAttackResult(
                     finding_id=config.finding_id,
@@ -253,7 +656,7 @@ class TargetedDASTRunner:
                     error=str(exc),
                 )
                 for config in attack_configs
-            ]
+            ] + missing_configs
 
         confirmed_count = sum(1 for r in results if r.attack_succeeded)
         logger.info(
@@ -270,6 +673,7 @@ class TargetedDASTRunner:
         base_url: str,
         repo_path: str,
         route_map: Optional[Dict[str, List[str]]] = None,
+        discovered_endpoints: Optional[List[DiscoveredEndpoint]] = None,
     ) -> Optional[DASTAttackConfig]:
         rule_id = finding.rule_id.lower()
         rule_message = (finding.rule_message or "").lower()
@@ -278,14 +682,57 @@ class TargetedDASTRunner:
         if not vuln_type:
             return None
 
-        endpoint, confidence = self._resolve_endpoint(
-            finding.file_path,
-            repo_path,
-            route_map,
-        )
-        target_url = urljoin(base_url.rstrip("/") + "/", endpoint.lstrip("/"))
+        # Try spider-first fuzzy matching if we have discovered endpoints
+        matched_endpoint: Optional[DiscoveredEndpoint] = None
+        match_confidence = 0.0
 
-        parameter = self._extract_parameter(finding)
+        if discovered_endpoints:
+            matched_endpoint, match_confidence = self._fuzzy_match_finding_to_endpoint(
+                finding, discovered_endpoints
+            )
+
+        if matched_endpoint and match_confidence >= 0.4:
+            # Use the discovered endpoint
+            target_url = urljoin(
+                base_url.rstrip("/") + "/", matched_endpoint.path.lstrip("/")
+            )
+            confidence = match_confidence
+
+            # Use parameter from matched endpoint if available, else extract from code
+            if matched_endpoint.query_params:
+                parameter = matched_endpoint.query_params[0]
+            elif matched_endpoint.form_params:
+                parameter = matched_endpoint.form_params[0]
+            else:
+                parameter = self._extract_parameter(finding)
+
+            # Use method from discovered endpoint
+            http_method = matched_endpoint.method
+
+            logger.info(
+                "Using spider-matched endpoint for %s: %s (confidence: %.2f)",
+                finding.file_path,
+                target_url,
+                confidence,
+            )
+        else:
+            # Fall back to file-based endpoint resolution
+            endpoint, confidence = self._resolve_endpoint(
+                finding.file_path,
+                repo_path,
+                route_map,
+            )
+            target_url = urljoin(base_url.rstrip("/") + "/", endpoint.lstrip("/"))
+            parameter = self._extract_parameter(finding)
+            http_method = self._detect_http_method(finding)
+
+            logger.debug(
+                "Using file-based mapping for %s: %s (confidence: %.2f)",
+                finding.file_path,
+                target_url,
+                confidence,
+            )
+
         finding_id = f"{finding.rule_id}:{finding.file_path}:{finding.line_start}"
 
         return DASTAttackConfig(
@@ -294,7 +741,7 @@ class TargetedDASTRunner:
             vuln_keywords=VULN_KEYWORDS.get(vuln_type, []),
             target_endpoint=target_url,
             target_parameter=parameter,
-            http_method=self._detect_http_method(finding),
+            http_method=http_method,
             sast_rule_id=finding.rule_id,
             endpoint_mapping_confidence=confidence,
         )
@@ -401,6 +848,9 @@ class TargetedDASTRunner:
         self,
         zap: ZapDockerSession,
         config: DASTAttackConfig,
+        *,
+        original_netloc: Optional[str],
+        docker_netloc: Optional[str],
     ) -> DASTAttackResult:
         logger.info(
             "DAST attacking %s for %s vulnerability",
@@ -430,17 +880,15 @@ class TargetedDASTRunner:
             )
             await zap.wait_spider(spider_id)
         except ZapError as exc:
-            blocked = _detect_blocking_status(str(exc))
-            if blocked:
-                return DASTAttackResult(
-                    finding_id=config.finding_id,
-                    attack_succeeded=False,
-                    confidence=0.35,
-                    verification_status=blocked,
-                    proof_of_exploit=None,
-                    evidence=["ZAP spider blocked the request."],
-                    error=str(exc),
-                )
+            return DASTAttackResult(
+                finding_id=config.finding_id,
+                attack_succeeded=False,
+                confidence=0.35,
+                verification_status="inconclusive",
+                proof_of_exploit=None,
+                evidence=["ZAP spider blocked the request."],
+                error=str(exc),
+            )
 
         try:
             scan_id = await zap.active_scan(
@@ -454,12 +902,11 @@ class TargetedDASTRunner:
             )
             await zap.wait_active(scan_id)
         except ZapError as exc:
-            status = _status_from_error(exc)
             return DASTAttackResult(
                 finding_id=config.finding_id,
                 attack_succeeded=False,
-                confidence=0.2 if status == "error_timeout" else 0.0,
-                verification_status=status,
+                confidence=0.2 if exc.kind == "timeout" else 0.0,
+                verification_status="inconclusive",
                 proof_of_exploit=None,
                 evidence=[],
                 error=str(exc),
@@ -474,12 +921,11 @@ class TargetedDASTRunner:
         try:
             alerts = await zap.alerts(base_url=_base_url(target_url))
         except ZapError as exc:
-            status = _status_from_error(exc)
             return DASTAttackResult(
                 finding_id=config.finding_id,
                 attack_succeeded=False,
                 confidence=0.0,
-                verification_status=status,
+                verification_status="inconclusive",
                 proof_of_exploit=None,
                 evidence=[],
                 error=str(exc),
@@ -494,6 +940,10 @@ class TargetedDASTRunner:
 
         if relevant_alerts:
             parsed = parse_zap_alert(relevant_alerts[0], fallback_url=target_url)
+            if parsed:
+                parsed = rewrite_finding_for_display(
+                    parsed, original_netloc, docker_netloc
+                )
             evidence = parsed.evidence if parsed else []
             return DASTAttackResult(
                 finding_id=config.finding_id,
@@ -511,11 +961,11 @@ class TargetedDASTRunner:
             )
 
         status = (
-            "attempted_not_reproduced"
+            "not_confirmed"
             if config.endpoint_mapping_confidence >= 0.45
-            else "inconclusive_mapping"
+            else "inconclusive"
         )
-        confidence = 0.6 if status == "attempted_not_reproduced" else 0.35
+        confidence = 0.6 if status == "not_confirmed" else 0.35
         return DASTAttackResult(
             finding_id=config.finding_id,
             attack_succeeded=False,
@@ -546,16 +996,18 @@ class TargetedDASTRunner:
 
             if dast_result:
                 finding.dast_verification_status = dast_result.verification_status
+                # Persist DAST attempt details even when an exploit is not confirmed
+                # so the UI can show that targeted runtime verification was performed.
+                finding.dast_matched_at = dast_result.matched_at
+                finding.dast_endpoint = dast_result.endpoint
+                finding.dast_curl_command = dast_result.proof_of_exploit
+                finding.dast_evidence = dast_result.evidence
+                finding.dast_cve_ids = dast_result.cve_ids
+                finding.dast_cwe_ids = dast_result.cwe_ids
                 if dast_result.attack_succeeded:
                     finding.confirmed_exploitable = True
                     finding.is_false_positive = False
                     finding.ai_confidence = min(1.0, finding.ai_confidence + 0.2)
-                    finding.dast_matched_at = dast_result.matched_at
-                    finding.dast_endpoint = dast_result.endpoint
-                    finding.dast_curl_command = dast_result.proof_of_exploit
-                    finding.dast_evidence = dast_result.evidence
-                    finding.dast_cve_ids = dast_result.cve_ids
-                    finding.dast_cwe_ids = dast_result.cwe_ids
                     confirmed_count += 1
 
         return triaged_findings, confirmed_count
@@ -645,18 +1097,10 @@ async def _remove_auth_headers(
 
 
 def _status_from_error(exc: ZapError) -> str:
-    if exc.kind == "timeout":
-        return "error_timeout"
-    blocked = _detect_blocking_status(str(exc))
-    if blocked:
-        return blocked
-    return "error_tooling"
+    return "inconclusive"
 
 
-def _detect_blocking_status(output: str) -> Optional[str]:
-    text = output.lower()
-    if "429" in text or "rate limit" in text or "too many requests" in text:
-        return "blocked_rate_limit"
-    if "401" in text or "403" in text or "unauthorized" in text or "forbidden" in text:
-        return "blocked_auth_required"
-    return None
+def _parse_extra_hosts(value: Optional[str]) -> List[str]:
+    if not value:
+        return []
+    return [item.strip() for item in value.split(",") if item.strip()]

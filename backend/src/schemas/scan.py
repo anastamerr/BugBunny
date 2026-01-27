@@ -129,9 +129,10 @@ class ScanCreate(BaseModel):
         if self.scan_type in {ScanType.sast, ScanType.both}:
             if not self.repo_url and not self.repo_id:
                 raise ValueError("repo_url or repo_id is required for SAST scans")
-        if self.scan_type == ScanType.both and not settings.dast_deploy_script:
+        # Allow 'both' scans if either a deploy script is configured OR a manual target_url is provided
+        if self.scan_type == ScanType.both and not settings.dast_deploy_script and not self.target_url:
             raise ValueError(
-                "DAST verification for 'both' scans requires DAST_DEPLOY_SCRIPT to deploy the SAST commit"
+                "DAST verification for 'both' scans requires either DAST_DEPLOY_SCRIPT or a manual target_url"
             )
         if self.scan_type in {ScanType.dast, ScanType.both}:
             if not self.target_url:

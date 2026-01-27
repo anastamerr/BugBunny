@@ -75,6 +75,8 @@ class Finding(Base):
         Enum(
             "not_run",
             "confirmed_exploitable",
+            "not_confirmed",
+            "inconclusive",
             "attempted_not_reproduced",
             "blocked_auth_required",
             "blocked_rate_limit",

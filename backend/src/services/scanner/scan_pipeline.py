@@ -237,26 +237,31 @@ async def run_scan_pipeline(
                 raise RuntimeError(
                     "Commit SHA is required to deploy for DAST verification."
                 )
-            if not deployment_service.is_configured():
-                raise RuntimeError(
-                    "DAST verification requires DAST_DEPLOY_SCRIPT to deploy the SAST commit."
+
+            # Skip deployment if a manual target_url was provided
+            if not target_url:
+                if not deployment_service.is_configured():
+                    raise RuntimeError(
+                        "DAST verification requires DAST_DEPLOY_SCRIPT to deploy the SAST commit."
+                    )
+
+                await _wait_for_resume(db, scan_id)
+                _update_scan(db, scan_id, status="scanning")
+                await sio.emit(
+                    "scan.updated",
+                    {"scan_id": str(scan_id), "status": "scanning", "phase": "deploy"},
                 )
 
-            await _wait_for_resume(db, scan_id)
-            _update_scan(db, scan_id, status="scanning")
-            await sio.emit(
-                "scan.updated",
-                {"scan_id": str(scan_id), "status": "scanning", "phase": "deploy"},
-            )
-
-            target_url = await deployment_service.deploy(
-                repo_path, commit_sha, branch
-            )
-            _update_scan(db, scan_id, target_url=target_url)
-            await sio.emit(
-                "scan.updated",
-                {"scan_id": str(scan_id), "target_url": target_url},
-            )
+                target_url = await deployment_service.deploy(
+                    repo_path, commit_sha, branch
+                )
+                _update_scan(db, scan_id, target_url=target_url)
+                await sio.emit(
+                    "scan.updated",
+                    {"scan_id": str(scan_id), "target_url": target_url},
+                )
+            else:
+                logger.info(f"[{scan_id}] Using manually provided target_url: {target_url}")
 
         if scan_type in {"dast", "both"} and target_url:
             await _wait_for_resume(db, scan_id)

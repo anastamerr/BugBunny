@@ -118,7 +118,7 @@ class DASTAttackResult:
     finding_id: str
     attack_succeeded: bool
     confidence: float  # 0.0-1.0
-    verification_status: str  # One of: not_run, confirmed_exploitable, attempted_not_reproduced, blocked_auth_required, blocked_rate_limit, inconclusive_mapping, error_timeout, error_tooling
+    verification_status: str  # One of: not_run, confirmed_exploitable, not_confirmed, inconclusive
     proof_of_exploit: Optional[str] = None  # Curl command
     evidence: Optional[List[str]] = None  # ZAP alert evidence strings
     matched_at: Optional[str] = None
@@ -147,3 +147,15 @@ class DependencyHealthFinding:
     ai_reasoning: str
     description: Optional[str] = None
     remediation: Optional[str] = None
+
+
+@dataclass
+class DiscoveredEndpoint:
+    """An endpoint discovered by spidering the target application."""
+
+    url: str  # Full URL including query params
+    path: str  # URL path only (e.g., /WebGoat/SqlInjection/attack9)
+    method: str  # HTTP method (GET, POST, etc.)
+    query_params: List[str]  # Query parameter names
+    form_params: List[str]  # Form/POST parameter names
+    path_segments: List[str]  # Path segments that look like IDs or dynamic values

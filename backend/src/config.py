@@ -48,6 +48,7 @@ class Settings(BaseSettings):
     zap_request_timeout_seconds: Optional[int] = None
     zap_max_depth: Optional[int] = None
     zap_scan_policy: Optional[str] = None
+    zap_docker_extra_hosts: Optional[str] = None  # comma-separated host:ip mappings
     dast_allowed_hosts: Optional[str] = None
     dast_deploy_script: Optional[str] = None
     dast_require_verification: bool = False

@@ -42,6 +42,8 @@ class FixStatus(str, Enum):
 class DASTVerificationStatus(str, Enum):
     not_run = "not_run"
     confirmed_exploitable = "confirmed_exploitable"
+    not_confirmed = "not_confirmed"
+    inconclusive = "inconclusive"
     attempted_not_reproduced = "attempted_not_reproduced"
     blocked_auth_required = "blocked_auth_required"
     blocked_rate_limit = "blocked_rate_limit"

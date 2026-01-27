@@ -7,6 +7,7 @@ from ...config import get_settings
 from .types import DynamicFinding
 from .zap_client import ZapDockerSession, ZapError, is_docker_available
 from .zap_parser import parse_zap_alert
+from .zap_utils import dockerize_target_url, rewrite_finding_for_display
 
 logger = logging.getLogger(__name__)
 
@@ -30,40 +31,48 @@ class DASTRunner:
             self.last_error = "Docker is not available for running ZAP."
             return []
 
+        effective_target, original_netloc, docker_netloc = dockerize_target_url(
+            target_url
+        )
         try:
             async with ZapDockerSession(
                 image=self.settings.zap_docker_image,
                 api_key=self.settings.zap_api_key,
                 timeout_seconds=self.settings.zap_timeout_seconds,
                 request_timeout_seconds=self.settings.zap_request_timeout_seconds,
+                extra_hosts=_parse_extra_hosts(self.settings.zap_docker_extra_hosts),
             ) as zap:
                 rule_descriptions = await _apply_auth_headers(
                     zap, auth_headers, cookies
                 )
                 try:
                     spider_id = await zap.spider_scan(
-                        target_url,
+                        effective_target,
                         max_children=self.settings.zap_max_depth,
                         recurse=True,
                     )
                     await zap.wait_spider(spider_id)
 
                     scan_id = await zap.active_scan(
-                        url=target_url,
+                        url=effective_target,
                         recurse=True,
                         scan_policy_name=self.settings.zap_scan_policy,
                     )
                     await zap.wait_active(scan_id)
 
-                    alerts = await zap.alerts(base_url=target_url)
+                    alerts = await zap.alerts(base_url=effective_target)
                 finally:
                     await _remove_auth_headers(zap, rule_descriptions)
 
             findings: List[DynamicFinding] = []
             for alert in alerts:
-                parsed = parse_zap_alert(alert, fallback_url=target_url)
+                parsed = parse_zap_alert(alert, fallback_url=effective_target)
                 if parsed:
-                    findings.append(parsed)
+                    findings.append(
+                        rewrite_finding_for_display(
+                            parsed, original_netloc, docker_netloc
+                        )
+                    )
             return findings
         except ZapError as exc:
             self.last_error = str(exc)
@@ -106,3 +115,9 @@ async def _remove_auth_headers(
             await zap.remove_header_rule(description)
         except ZapError as exc:
             logger.debug("Failed to remove ZAP header rule %s: %s", description, exc)
+
+
+def _parse_extra_hosts(value: Optional[str]) -> List[str]:
+    if not value:
+        return []
+    return [item.strip() for item in value.split(",") if item.strip()]

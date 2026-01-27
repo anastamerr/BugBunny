@@ -38,23 +38,27 @@ const fixStatusStyles: Record<string, string> = {
 
 const dastStatusLabels: Record<string, string> = {
   confirmed_exploitable: "🔴 confirmed exploitable",
-  attempted_not_reproduced: "⚪ attempted not reproduced",
-  blocked_auth_required: "🔒 auth required",
-  blocked_rate_limit: "⏱️ rate limited",
-  inconclusive_mapping: "❓ inconclusive mapping",
-  error_timeout: "⏰ timeout",
-  error_tooling: "⚠️ tooling error",
+  not_confirmed: "⚪ not confirmed",
+  inconclusive: "❓ inconclusive",
+  attempted_not_reproduced: "⚪ not confirmed",
+  blocked_auth_required: "❓ inconclusive",
+  blocked_rate_limit: "❓ inconclusive",
+  inconclusive_mapping: "❓ inconclusive",
+  error_timeout: "❓ inconclusive",
+  error_tooling: "❓ inconclusive",
   not_run: "⚫ SAST only (no DAST run)",
 };
 
 const dastStatusStyles: Record<string, string> = {
   confirmed_exploitable: "badge border-rose-500/60 bg-rose-500/15 text-rose-200 font-semibold",
+  not_confirmed: "badge border-white/20 bg-white/10 text-white/80",
+  inconclusive: "badge border-violet-400/40 bg-violet-400/10 text-violet-200",
   attempted_not_reproduced: "badge border-white/20 bg-white/10 text-white/80",
-  blocked_auth_required: "badge border-amber-400/40 bg-amber-400/10 text-amber-200",
-  blocked_rate_limit: "badge border-sky-400/40 bg-sky-400/10 text-sky-200",
+  blocked_auth_required: "badge border-violet-400/40 bg-violet-400/10 text-violet-200",
+  blocked_rate_limit: "badge border-violet-400/40 bg-violet-400/10 text-violet-200",
   inconclusive_mapping: "badge border-violet-400/40 bg-violet-400/10 text-violet-200",
-  error_timeout: "badge border-amber-400/40 bg-amber-400/10 text-amber-200",
-  error_tooling: "badge border-rose-400/40 bg-rose-400/10 text-rose-200",
+  error_timeout: "badge border-violet-400/40 bg-violet-400/10 text-violet-200",
+  error_tooling: "badge border-violet-400/40 bg-violet-400/10 text-violet-200",
   not_run: "badge border-white/20 bg-white/10 text-white/70",
 };
 
