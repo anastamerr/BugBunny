@@ -6,7 +6,14 @@
       "Bash(find:*)",
       "Bash(git add:*)",
       "Bash(git rebase:*)",
-      "Bash(GIT_EDITOR=true git rebase:*)"
+      "Bash(GIT_EDITOR=true git rebase:*)",
+      "Bash(git commit:*)",
+      "Bash(curl:*)",
+      "Bash(lsof:*)",
+      "Bash(kill:*)",
+      "Bash(xargs kill:*)",
+      "Bash(docker ps:*)",
+      "Bash(python3:*)"
     ],
     "deny": [],
     "ask": []

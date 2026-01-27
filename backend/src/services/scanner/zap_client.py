@@ -113,11 +113,18 @@ class ZapDockerSession:
         self.container_id = (result.stdout or "").strip()
         self.container_name = container_name
         self.base_url = f"http://127.0.0.1:{port}"
+        # Force Host header to match the ZAP daemon bind port inside the container.
         self._client = httpx.AsyncClient(
-            base_url=self.base_url, timeout=self.request_timeout_seconds
+            base_url=self.base_url,
+            timeout=self.request_timeout_seconds,
+            headers={"Host": "127.0.0.1:8080"},
         )
 
-        await self._wait_ready()
+        try:
+            await self._wait_ready()
+        except Exception:
+            await self.stop()
+            raise
 
     async def stop(self) -> None:
         if self._client:
@@ -137,7 +144,7 @@ class ZapDockerSession:
         self.base_url = None
 
     async def _wait_ready(self) -> None:
-        deadline = time.monotonic() + min(60, self.timeout_seconds)
+        deadline = time.monotonic() + min(180, self.timeout_seconds)
         last_error: Optional[str] = None
         while time.monotonic() < deadline:
             try:

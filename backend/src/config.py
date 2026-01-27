@@ -19,6 +19,7 @@ class Settings(BaseSettings):
     redis_url: str = "redis://redis:6379/0"
     pinecone_api_key: Optional[str] = None
     pinecone_environment: Optional[str] = None
+    skip_pinecone: bool = False
     ollama_host: str = "http://ollama:11434"
     ollama_model: str = "llama3:8b"
 

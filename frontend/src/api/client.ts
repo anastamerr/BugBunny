@@ -5,6 +5,8 @@ import { toApiError } from "./errors";
 
 const rawApiBase = import.meta.env.VITE_API_URL || "http://localhost:8000";
 export const API_BASE = rawApiBase.replace(/\/+$/, "");
+const devBearerToken = (import.meta.env.VITE_DEV_BEARER_TOKEN as string | undefined)
+  ?.trim();
 
 export const api = axios.create({
   baseURL: API_BASE,
@@ -13,9 +15,26 @@ export const api = axios.create({
   },
 });
 
+async function resolveAuthToken(): Promise<string | undefined> {
+  // In local dev, allow a manual bearer token without Supabase.
+  if (devBearerToken) {
+    return devBearerToken;
+  }
+
+  try {
+    const { data, error } = await supabase.auth.getSession();
+    if (error) {
+      return undefined;
+    }
+    return data.session?.access_token;
+  } catch {
+    // Supabase may be unconfigured in local dev.
+    return undefined;
+  }
+}
+
 api.interceptors.request.use(async (config) => {
-  const { data } = await supabase.auth.getSession();
-  const token = data.session?.access_token;
+  const token = await resolveAuthToken();
   if (token) {
     config.headers.set("Authorization", `Bearer ${token}`);
   }

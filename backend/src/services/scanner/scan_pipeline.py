@@ -45,12 +45,15 @@ async def run_scan_pipeline(
     target_url: str | None = None,
     requested_commit_sha: str | None = None,
 ) -> None:
+    logger.info(f"[{scan_id}] Pipeline starting...")
     db = SessionLocal()
     repo_path = None
     fetcher = RepoFetcher()
     runner = SemgrepRunner()
     extractor = ContextExtractor()
+    logger.info(f"[{scan_id}] Initializing AI triage engine...")
     triage = AITriageEngine()
+    logger.info(f"[{scan_id}] Getting Pinecone client...")
     pinecone = _get_pinecone()
     aggregator = FindingAggregator(pinecone)
     dast_runner = DASTRunner()
@@ -58,8 +61,10 @@ async def run_scan_pipeline(
     dependency_scanner = DependencyScanner()
     dependency_health_scanner = DependencyHealthScanner()
     deployment_service = DeploymentService()
+    logger.info(f"[{scan_id}] All services initialized")
 
     try:
+        logger.info(f"[{scan_id}] Fetching scan from DB...")
         scan = db.query(Scan).filter(Scan.id == scan_id).first()
         github_token = None
         commit_sha = scan.commit_sha if scan else None
@@ -93,13 +98,20 @@ async def run_scan_pipeline(
             if not repo_url:
                 raise RuntimeError("repo_url is required for SAST scans")
 
+            logger.info(f"[{scan_id}] Starting SAST scan for {repo_url}")
             await _wait_for_resume(db, scan_id)
+            logger.info(f"[{scan_id}] Updating status to cloning...")
             _update_scan(db, scan_id, status="cloning")
-            await sio.emit(
-                "scan.updated",
-                {"scan_id": str(scan_id), "status": "cloning", "phase": "SAST"},
-            )
+            logger.info(f"[{scan_id}] Emitting cloning status via Socket.IO...")
+            try:
+                await sio.emit(
+                    "scan.updated",
+                    {"scan_id": str(scan_id), "status": "cloning", "phase": "SAST"},
+                )
+            except Exception as e:
+                logger.warning(f"[{scan_id}] Socket.IO emit failed: {e}")
 
+            logger.info(f"[{scan_id}] Cloning repository...")
             repo_path, resolved_branch = await fetcher.clone(
                 repo_url,
                 branch=branch,
@@ -665,6 +677,11 @@ async def _wait_for_resume(db: Session, scan_id: uuid.UUID) -> None:
             raise ScanCancelled("Scan was deleted.")
         if not scan.is_paused:
             return
+        # Release DB connections while paused to avoid starving the pool.
+        try:
+            db.close()
+        except Exception:
+            pass
         await asyncio.sleep(PAUSE_POLL_SECONDS)
         db.expire_all()
 
@@ -725,14 +742,26 @@ def _update_scan(
     db.add(scan)
     db.commit()
     db.refresh(scan)
+    # Return the connection to the pool after each status update.
+    try:
+        db.close()
+    except Exception:
+        pass
 
 
 def _get_pinecone() -> Optional["PineconeService"]:
+    """Get Pinecone client if available. Skip if it takes too long or fails."""
+    from ...config import get_settings
+    settings = get_settings()
+    # Skip Pinecone in dev/local to avoid slow model downloads
+    if settings.skip_pinecone:
+        logger.info("Skipping Pinecone (SKIP_PINECONE is set)")
+        return None
     try:
         from ...integrations.pinecone_client import PineconeService
-
         return PineconeService()
-    except Exception:
+    except Exception as e:
+        logger.warning(f"Pinecone unavailable: {e}")
         return None
 
 

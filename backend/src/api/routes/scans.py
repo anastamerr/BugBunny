@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import asyncio
+import inspect
+import logging
+import threading
 import uuid
 from datetime import datetime, timedelta, timezone
 from io import BytesIO
@@ -12,6 +16,7 @@ from sqlalchemy.orm import Session
 
 from ...api.deps import CurrentUser, get_current_user, get_db
 from ...config import get_settings
+from ...db.session import SessionLocal
 from ...models import Finding, Repository, Scan, UserSettings
 from ...realtime import sio
 from ...schemas.autofix import AutoFixRequest, AutoFixResponse
@@ -22,6 +27,69 @@ from ...services.reports.report_insights import generate_report_insights_sync
 from ...services.autofix_service import AutoFixService
 from ...services.scanner import run_scan_pipeline
 from ...services.storage import delete_pdf, download_pdf, get_pdf_url, upload_pdf
+
+logger = logging.getLogger(__name__)
+
+
+def _mark_scan_failed(scan_id: uuid.UUID, error: str) -> None:
+    """Best-effort fallback to avoid scans stuck in pending."""
+    db = SessionLocal()
+    try:
+        scan = db.query(Scan).filter(Scan.id == scan_id).first()
+        if not scan or scan.status in {"completed", "failed"}:
+            return
+        scan.status = "failed"
+        scan.error_message = error[:2000]
+        db.add(scan)
+        db.commit()
+    except Exception:
+        logger.exception("Failed to mark scan %s as failed", scan_id)
+    finally:
+        db.close()
+
+
+def _run_scan_pipeline_sync(scan_id, repo_url, branch, scan_type, target_url, commit_sha):
+    """Start the async scan pipeline in a separate daemon thread.
+
+    FastAPI BackgroundTasks run in-process and would otherwise block the
+    server worker while the scan is running. Spawning a thread keeps the API
+    responsive with a single Uvicorn worker (and avoids Socket.IO issues that
+    appear with multiple workers without a message queue).
+    """
+
+    def _runner() -> None:
+        logger.info(f"Starting scan pipeline for scan_id={scan_id}")
+        try:
+            signature = inspect.signature(run_scan_pipeline)
+            supported = signature.parameters.keys()
+            kwargs = {
+                "scan_id": scan_id,
+                "repo_url": repo_url,
+                "branch": branch,
+                "scan_type": scan_type,
+                "target_url": target_url,
+                "requested_commit_sha": commit_sha,
+            }
+            filtered_kwargs = {k: v for k, v in kwargs.items() if k in supported}
+            asyncio.run(run_scan_pipeline(**filtered_kwargs))
+            logger.info(f"Scan pipeline completed for scan_id={scan_id}")
+        except Exception as e:
+            logger.error(
+                f"Scan pipeline failed for scan_id={scan_id}: {e}", exc_info=True
+            )
+            _mark_scan_failed(scan_id, str(e))
+
+    thread = threading.Thread(
+        target=_runner,
+        name=f"scan-pipeline-{scan_id}",
+        daemon=True,
+    )
+    try:
+        thread.start()
+    except Exception as exc:
+        logger.error("Failed to start scan thread for %s: %s", scan_id, exc)
+        _mark_scan_failed(scan_id, f"Failed to start scan thread: {exc}")
+
 
 router = APIRouter(prefix="/scans", tags=["scans"])
 findings_router = APIRouter(prefix="/findings", tags=["findings"])
@@ -128,8 +196,10 @@ async def create_scan(
     db.commit()
     db.refresh(scan)
 
-    background_tasks.add_task(
-        run_scan_pipeline,
+    # Kick off the scan immediately. The helper spawns a daemon thread, so this
+    # returns quickly without blocking the request worker.
+    logger.info(f"Starting scan pipeline thread for scan_id={scan.id}")
+    _run_scan_pipeline_sync(
         scan.id,
         scan.repo_url,
         scan.branch,
