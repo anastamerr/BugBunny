@@ -59,6 +59,10 @@ class Finding(Base):
     is_test_file = Column(Boolean, nullable=False, default=False)
     is_generated = Column(Boolean, nullable=False, default=False)
     imports = Column(JSON, nullable=True)
+    sast_vuln_type = Column(String, nullable=True)
+    sast_endpoint = Column(String, nullable=True)
+    sast_http_method = Column(String, nullable=True)
+    sast_parameter = Column(String, nullable=True)
     matched_at = Column(String, nullable=True)
     endpoint = Column(String, nullable=True)
     curl_command = Column(Text, nullable=True)
@@ -81,6 +85,7 @@ class Finding(Base):
             "blocked_auth_required",
             "blocked_rate_limit",
             "inconclusive_mapping",
+            "bad_request",
             "error_timeout",
             "error_tooling",
             name="dast_verification_status",
@@ -101,6 +106,7 @@ class Finding(Base):
         default="new",
     )
     priority_score = Column(Integer, nullable=True)
+    dedupe_key = Column(String, nullable=True, index=True)
 
     fix_status = Column(
         Enum("generated", "pr_opened", "failed", name="fix_status"),

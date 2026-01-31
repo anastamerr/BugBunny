@@ -154,6 +154,8 @@ class ScanUpdate(BaseModel):
     is_paused: Optional[bool] = None
     target_url: Optional[str] = None
     trigger: Optional[ScanTrigger] = None
+    phase: Optional[str] = None
+    phase_message: Optional[str] = None
     total_findings: Optional[int] = None
     filtered_findings: Optional[int] = None
     dast_findings: Optional[int] = None
@@ -180,6 +182,8 @@ class ScanRead(BaseModel):
     dependency_health_enabled: bool
     target_url: Optional[str] = None
     status: ScanStatus
+    phase: Optional[str] = None
+    phase_message: Optional[str] = None
     is_paused: bool
     trigger: ScanTrigger
     total_findings: int

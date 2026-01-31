@@ -47,6 +47,8 @@ class Scan(Base):
         nullable=False,
         default="pending",
     )
+    phase = Column(String, nullable=True)
+    phase_message = Column(Text, nullable=True)
     is_paused = Column(Boolean, nullable=False, default=False)
     trigger = Column(
         Enum("manual", "webhook", name="scan_trigger"),

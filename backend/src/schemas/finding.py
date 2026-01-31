@@ -48,6 +48,7 @@ class DASTVerificationStatus(str, Enum):
     blocked_auth_required = "blocked_auth_required"
     blocked_rate_limit = "blocked_rate_limit"
     inconclusive_mapping = "inconclusive_mapping"
+    bad_request = "bad_request"
     error_timeout = "error_timeout"
     error_tooling = "error_tooling"
 
@@ -74,6 +75,10 @@ class FindingBase(BaseModel):
     is_test_file: bool = False
     is_generated: bool = False
     imports: Optional[List[str]] = None
+    sast_vuln_type: Optional[str] = None
+    sast_endpoint: Optional[str] = None
+    sast_http_method: Optional[str] = None
+    sast_parameter: Optional[str] = None
     matched_at: Optional[str] = None
     endpoint: Optional[str] = None
     curl_command: Optional[str] = None
@@ -97,6 +102,7 @@ class FindingBase(BaseModel):
 
     status: FindingStatus = FindingStatus.new
     priority_score: Optional[int] = None
+    dedupe_key: Optional[str] = None
 
     fix_status: Optional[FixStatus] = None
     fix_summary: Optional[str] = None
