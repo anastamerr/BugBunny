@@ -43,6 +43,7 @@ def _make_dast_finding(*, matched_at: str) -> DynamicFinding:
 
 def test_correlation_keeps_distinct_dast_endpoints():
     triaged = [_make_triaged_finding()]
+    triaged[0].dast_matched_at = "https://a.example.com/vuln"
     dast_a = _make_dast_finding(matched_at="https://a.example.com/vuln")
     dast_b = _make_dast_finding(matched_at="https://b.example.com/vuln")
 

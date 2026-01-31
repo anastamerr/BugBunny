@@ -107,7 +107,7 @@ class DummyDAST:
     def is_available(self):
         return False
 
-    async def scan(self, target_url, auth_headers=None, cookies=None):  # noqa: ANN001
+    async def scan(self, target_url, auth_headers=None, cookies=None, progress_cb=None):  # noqa: ANN001
         return []
 
 
@@ -216,7 +216,7 @@ async def test_dast_verification_persisted_before_zap(db_sessionmaker, monkeypat
         def is_available(self):
             return True
 
-        async def scan(self, target_url, auth_headers=None, cookies=None):  # noqa: ANN001
+        async def scan(self, target_url, auth_headers=None, cookies=None, progress_cb=None):  # noqa: ANN001
             verify = db_sessionmaker()
             scan = verify.query(Scan).filter(Scan.id == scan_id).first()
             status_at_zap["value"] = scan.dast_verification_status if scan else None
@@ -273,7 +273,7 @@ async def test_dast_manual_url_sets_unverified_before_zap(db_sessionmaker, monke
         def is_available(self):
             return True
 
-        async def scan(self, target_url, auth_headers=None, cookies=None):  # noqa: ANN001
+        async def scan(self, target_url, auth_headers=None, cookies=None, progress_cb=None):  # noqa: ANN001
             verify = db_sessionmaker()
             scan = verify.query(Scan).filter(Scan.id == scan_id).first()
             status_at_zap["value"] = scan.dast_verification_status if scan else None
@@ -328,7 +328,7 @@ async def test_dast_failure_keeps_verification_status(db_sessionmaker, monkeypat
         def is_available(self):
             return True
 
-        async def scan(self, target_url, auth_headers=None, cookies=None):  # noqa: ANN001
+        async def scan(self, target_url, auth_headers=None, cookies=None, progress_cb=None):  # noqa: ANN001
             raise RuntimeError("zap failed")
 
     monkeypatch.setattr(scan_pipeline, "CommitVerifier", DummyVerifier)
@@ -389,7 +389,7 @@ async def test_dast_upgrades_unverified_before_zap(db_sessionmaker, monkeypatch)
         def is_available(self):
             return True
 
-        async def scan(self, target_url, auth_headers=None, cookies=None):  # noqa: ANN001
+        async def scan(self, target_url, auth_headers=None, cookies=None, progress_cb=None):  # noqa: ANN001
             verify = db_sessionmaker()
             scan = verify.query(Scan).filter(Scan.id == scan_id).first()
             status_at_zap["value"] = scan.dast_verification_status if scan else None

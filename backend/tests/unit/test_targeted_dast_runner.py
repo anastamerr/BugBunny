@@ -76,7 +76,20 @@ def test_classify_vulnerability():
     assert classify_vulnerability("command injection") == "command-injection"
     assert classify_vulnerability("server-side request forgery") == "ssrf"
     assert classify_vulnerability("path traversal") == "path-traversal"
+    assert (
+        classify_vulnerability(
+            "noise", rule_id="python.django.security.injection.sql-injection"
+        )
+        == "sqli"
+    )
     assert classify_vulnerability("unknown") is None
+
+
+def test_attack_findings_callable():
+    assert hasattr(TargetedDASTRunner, "_attack_findings_impl") is True
+    runner = TargetedDASTRunner()
+    assert hasattr(runner, "attack_findings") is True
+    assert callable(runner.attack_findings) is True
 
 
 def test_generate_config_for_sqli():
@@ -138,10 +151,14 @@ async def test_execute_attack_confirms_when_alert_matches():
             "description": "SQL injection detected",
         }
     ]
-    result = await runner._execute_attack(DummyZap(alerts), config)
+    result = await runner._execute_attack(
+        DummyZap(alerts), config, original_netloc=None, docker_netloc=None
+    )
 
     assert result.attack_succeeded is True
     assert result.verification_status == "confirmed_exploitable"
+    assert result.proof_of_exploit is not None
+    assert "curl" in (result.proof_of_exploit or "")
 
 
 @pytest.mark.asyncio
@@ -157,25 +174,33 @@ async def test_execute_attack_not_confirmed_when_no_alerts():
         endpoint_mapping_confidence=0.9,
     )
 
-    result = await runner._execute_attack(DummyZap([]), config)
+    result = await runner._execute_attack(
+        DummyZap([]), config, original_netloc=None, docker_netloc=None
+    )
 
     assert result.attack_succeeded is False
     assert result.verification_status == "attempted_not_reproduced"
+    assert result.matched_at is not None
+    assert result.evidence is not None
+    assert any("dast_target=" in item for item in result.evidence or [])
 
 
 @pytest.mark.asyncio
-async def test_attack_findings_skips_false_positives():
+async def test_attack_findings_attacks_false_positives(monkeypatch):
     runner = TargetedDASTRunner()
     findings = [
         make_triaged_finding(is_false_positive=True),
         make_triaged_finding(is_false_positive=True),
     ]
 
+    monkeypatch.setattr(runner, "is_available", lambda: False)
+
     results = await runner.attack_findings(
         "https://example.com", findings, "/repo"
     )
 
-    assert len(results) == 0
+    assert len(results) == 2
+    assert all(result.verification_status == "error_tooling" for result in results)
 
 
 @pytest.mark.asyncio
