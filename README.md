@@ -56,6 +56,7 @@ Optional backend variables include:
 - `PINECONE_API_KEY`, `PINECONE_ENVIRONMENT`
 - `SUPABASE_URL`, `SUPABASE_SERVICE_KEY` (PDF reports)
 - `ZAP_*` and `DAST_ALLOWED_HOSTS`
+- `DEV_AUTH_BYPASS`, `DEV_AUTH_USER_ID`, `DEV_AUTH_EMAIL` (local dev only)
 - `SCAN_MAX_ACTIVE`, `SCAN_MIN_INTERVAL_SECONDS`
 
 ## Local development (PowerShell example)
@@ -76,6 +77,10 @@ cd frontend
 npm install
 npm run dev -- --port 3000
 ```
+
+Local dev auth helpers:
+- Backend: set `DEV_AUTH_BYPASS=true` to skip Supabase JWT checks.
+- Frontend: set `VITE_DEV_AUTH_BYPASS=true` (and optionally `VITE_DEV_BEARER_TOKEN`) to skip the login gate.
 
 ## Trigger a scan
 ```powershell
@@ -110,6 +115,13 @@ Auth: All routes except `/api/health` require `Authorization: Bearer <Supabase J
 DAST scans require `scan_type` set to `dast` or `both`, a `target_url`, and `dast_consent=true`.
 Targets must be public http(s) URLs; optional allowlisting via `DAST_ALLOWED_HOSTS`.
 DAST runs OWASP ZAP in Docker and requires a working Docker daemon on the host.
+For local debugging you can attach to an existing ZAP daemon with `ZAP_BASE_URL`,
+or use `ZAP_HOST_PORT` + `ZAP_KEEPALIVE_SECONDS` to keep a managed container alive.
+
+Example debug helper:
+```bash
+./scripts/zap_debug.sh
+```
 
 ## Webhooks
 Configure GitHub webhooks to send `push` and `pull_request` events to:

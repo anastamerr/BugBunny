@@ -546,6 +546,269 @@ Monitor these metrics:
 
 ---
 
+## DAST Authentication Options
+
+DAST scanning of auth-protected applications requires providing credentials or tokens to the scanner.
+
+### Supported Authentication Methods
+
+#### 1. Bearer Token Authentication (Recommended)
+
+For APIs and SPAs that use Bearer tokens:
+
+```bash
+curl -X POST http://localhost:8000/api/scans \
+  -H "Content-Type: application/json" \
+  -d '{
+    "target_url": "http://localhost:8080",
+    "scan_type": "dast",
+    "dast_consent": true,
+    "dast_auth_headers": {
+      "Authorization": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+    }
+  }'
+```
+
+The scanner will inject the `Authorization` header into all requests.
+
+#### 2. Cookie-Based Authentication
+
+For session-based authentication:
+
+```bash
+curl -X POST http://localhost:8000/api/scans \
+  -H "Content-Type: application/json" \
+  -d '{
+    "target_url": "http://localhost:8080",
+    "scan_type": "dast",
+    "dast_consent": true,
+    "dast_cookies": "sessionid=abc123; csrftoken=xyz789"
+  }'
+```
+
+#### 3. Custom Headers
+
+For API keys or custom auth schemes:
+
+```bash
+curl -X POST http://localhost:8000/api/scans \
+  -H "Content-Type: application/json" \
+  -d '{
+    "target_url": "http://localhost:8080",
+    "scan_type": "dast",
+    "dast_consent": true,
+    "dast_auth_headers": {
+      "X-API-Key": "your-api-key-here",
+      "X-Custom-Header": "value"
+    }
+  }'
+```
+
+#### 4. Environment Variable (Dev Convenience)
+
+For local testing, set a default auth header:
+
+```bash
+# backend/.env
+DAST_DEFAULT_AUTH_HEADER=Authorization: Bearer dev-token-here
+```
+
+This header will be automatically applied to blind DAST scans when no explicit `dast_auth_headers` are provided.
+
+**⚠️ Security Note:** Only use this for local development. Never commit tokens to `.env` files.
+
+### How It Works
+
+Authentication is implemented via ZAP's replacer rules:
+1. Before scanning, auth headers/cookies are registered as replacer rules
+2. ZAP intercepts all requests and injects the headers
+3. After scanning, replacer rules are removed
+
+This approach works for:
+- ✅ Bearer tokens (JWT, OAuth)
+- ✅ API keys
+- ✅ Session cookies
+- ✅ Custom headers
+
+### Limitations
+
+**Not Currently Supported:**
+- ❌ Form-based login flows (username/password submission)
+- ❌ OAuth redirect flows
+- ❌ Multi-step authentication
+- ❌ Certificate-based authentication
+
+**Workarounds:**
+1. **Generate a token manually:** Log in via UI, extract token, provide to scanner
+2. **Pre-authenticated session:** Create session via API, provide session cookie
+3. **Test accounts:** Create dedicated test accounts with long-lived tokens
+
+### Examples
+
+#### Django with Session Auth
+
+```bash
+# 1. Get session cookie
+SESSION=$(curl -X POST http://localhost:8000/api/login \
+  -d '{"username":"test","password":"test"}' \
+  -c - | grep sessionid | awk '{print $7}')
+
+# 2. Scan with session
+curl -X POST http://localhost:8000/api/scans \
+  -d "{
+    \"target_url\": \"http://localhost:8000\",
+    \"scan_type\": \"dast\",
+    \"dast_consent\": true,
+    \"dast_cookies\": \"sessionid=$SESSION\"
+  }"
+```
+
+#### FastAPI with JWT
+
+```bash
+# 1. Get JWT token
+TOKEN=$(curl -X POST http://localhost:8000/api/token \
+  -d '{"username":"test","password":"test"}' | jq -r '.access_token')
+
+# 2. Scan with JWT
+curl -X POST http://localhost:8000/api/scans \
+  -d "{
+    \"target_url\": \"http://localhost:8000\",
+    \"scan_type\": \"dast\",
+    \"dast_consent\": true,
+    \"dast_auth_headers\": {
+      \"Authorization\": \"Bearer $TOKEN\"
+    }
+  }"
+```
+
+#### Express.js with API Key
+
+```bash
+curl -X POST http://localhost:8000/api/scans \
+  -d '{
+    "target_url": "http://localhost:3000",
+    "scan_type": "dast",
+    "dast_consent": true,
+    "dast_auth_headers": {
+      "X-API-Key": "your-api-key"
+    }
+  }'
+```
+
+### Verifying Authentication
+
+Check ZAP logs to confirm auth headers are applied:
+
+```bash
+# Enable debug logging
+export LOG_LEVEL=DEBUG
+
+# Run scan and check logs for:
+# "ZAP auth header set: Authorization"
+# "ZAP cookies set: sessionid=..."
+```
+
+Or manually verify with ZAP debug mode:
+
+```bash
+# Keep ZAP container alive for inspection
+export ZAP_KEEPALIVE_SECONDS=300
+
+# Run scan, then check ZAP UI at http://localhost:<port>
+./scripts/zap_debug.sh
+```
+
+---
+
+## Testing DAST with Known-Vulnerable Targets
+
+To verify that DAST scanning works correctly, you can run integration tests against deliberately vulnerable applications.
+
+### Local Testing with OWASP Juice Shop
+
+The project includes an integration test that scans OWASP Juice Shop:
+
+```bash
+# Run the vulnerable target test (requires Docker)
+cd backend
+pytest -m slow tests/integration/test_dast_known_vulnerable_target.py -v
+
+# Expected output:
+# - Container starts on random port
+# - DAST scan runs against Juice Shop
+# - At least 1 finding detected (proves DAST works)
+# - Container automatically cleaned up
+```
+
+### Manual Testing
+
+You can also manually test DAST against Juice Shop:
+
+```bash
+# 1. Start Juice Shop
+docker run -d --rm -p 3000:3000 --name juice-shop bkimminich/juice-shop
+
+# 2. Wait for it to start (check http://localhost:3000)
+
+# 3. Trigger DAST scan
+curl -X POST http://localhost:8000/api/scans \
+  -H "Content-Type: application/json" \
+  -d '{
+    "target_url": "http://localhost:3000/",
+    "scan_type": "dast",
+    "dast_consent": true
+  }'
+
+# 4. Check scan results in UI or via API
+
+# 5. Stop Juice Shop
+docker stop juice-shop
+```
+
+### Expected Findings
+
+When scanning Juice Shop, you should see findings like:
+- Missing Anti-Clickjacking Header
+- Missing Anti-CSRF Tokens
+- Content Security Policy issues
+- X-Content-Type-Options Header Missing
+- Cookie Without Secure Flag
+- SQL Injection vulnerabilities (if active scan completes)
+- XSS vulnerabilities (if active scan completes)
+
+If no findings are detected, check:
+- ZAP container started successfully
+- Target URL is reachable from ZAP container
+- Spider discovered URLs (check logs for "Spider discovered N URLs")
+- Active scan completed (may take several minutes)
+
+### CI Integration
+
+Add to your CI workflow to validate DAST functionality:
+
+```yaml
+# .github/workflows/security.yml
+jobs:
+  dast-validation:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+      - name: Install dependencies
+        run: |
+          cd backend
+          pip install -r requirements.txt
+      - name: Test DAST against Juice Shop
+        run: |
+          cd backend
+          pytest -m slow tests/integration/test_dast_known_vulnerable_target.py
+```
+
+---
+
 ## Support
 
 For issues or questions:
