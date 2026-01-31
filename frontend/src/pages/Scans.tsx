@@ -5,6 +5,7 @@ import { Link } from "react-router-dom";
 
 import { demoApi } from "../api/demo";
 import { repositoriesApi } from "../api/repositories";
+import { ApiError } from "../api/errors";
 import { scansApi } from "../api/scans";
 import type { Scan } from "../types";
 
@@ -26,7 +27,7 @@ const SCAN_TYPE_INFO: Record<ScanType, { label: string; description: string; ico
   },
   dast: {
     label: "DAST",
-    description: "Dynamic testing with Nuclei",
+    description: "Dynamic testing with OWASP ZAP",
     icon: (
       <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
         <path strokeLinecap="round" strokeLinejoin="round" d="M12 21a9.004 9.004 0 008.716-6.747M12 21a9.004 9.004 0 01-8.716-6.747M12 21c2.485 0 4.5-4.03 4.5-9S14.485 3 12 3m0 18c-2.485 0-4.5-4.03-4.5-9S9.515 3 12 3m0 0a8.997 8.997 0 017.843 4.582M12 3a8.997 8.997 0 00-7.843 4.582m15.686 0A11.953 11.953 0 0112 10.5c-2.998 0-5.74-1.1-7.843-2.918m15.686 0A8.959 8.959 0 0121 12c0 .778-.099 1.533-.284 2.253m0 0A17.919 17.919 0 0112 16.5c-3.162 0-6.133-.815-8.716-2.247m0 0A9.015 9.015 0 013 12c0-1.605.42-3.113 1.157-4.418" />
@@ -99,6 +100,23 @@ function formatDate(value?: string): string {
 function shortSha(sha?: string | null): string | null {
   if (!sha) return null;
   return sha.trim().slice(0, 7) || null;
+}
+
+function formatPhaseLabel(value?: string | null): string | null {
+  if (!value) return null;
+  const labels: Record<string, string> = {
+    "sast.clone": "SAST · cloning",
+    "sast.scan": "SAST · semgrep",
+    "sast.analyze": "SAST · triage",
+    "dast.deploy": "DAST · deploy",
+    "dast.verify": "DAST · verify",
+    "dast.spider": "DAST · spider",
+    "dast.active_scan": "DAST · active scan",
+    "dast.alerts": "DAST · alerts",
+    "dast.targeted": "DAST · targeted",
+    correlation: "correlation",
+  };
+  return labels[value] || value.replace(/[_\.]/g, " ");
 }
 
 function calculateNoiseReduction(scan: Scan): { percentage: number; filtered: number; total: number } {
@@ -237,6 +255,7 @@ function ScanCard({
   const { percentage, filtered, total } = calculateNoiseReduction(scan);
   const isPaused = Boolean(scan.is_paused);
   const isActive = isPaused || STATUS_CONFIG[scan.status].isActive;
+  const phaseLabel = formatPhaseLabel(scan.phase);
   const canDelete =
     scan.status === "pending" ||
     scan.is_paused ||
@@ -291,6 +310,15 @@ function ScanCard({
                     <path strokeLinecap="round" strokeLinejoin="round" d="M12 21a9.004 9.004 0 008.716-6.747M12 21a9.004 9.004 0 01-8.716-6.747M12 21c2.485 0 4.5-4.03 4.5-9S14.485 3 12 3m0 18c-2.485 0-4.5-4.03-4.5-9S9.515 3 12 3m0 0a8.997 8.997 0 017.843 4.582M12 3a8.997 8.997 0 00-7.843 4.582m15.686 0A11.953 11.953 0 0112 10.5c-2.998 0-5.74-1.1-7.843-2.918m15.686 0A8.959 8.959 0 0121 12c0 .778-.099 1.533-.284 2.253m0 0A17.919 17.919 0 0112 16.5c-3.162 0-6.133-.815-8.716-2.247m0 0A9.015 9.015 0 013 12c0-1.605.42-3.113 1.157-4.418" />
                   </svg>
                   <span className="truncate">{scan.target_url}</span>
+                </span>
+              )}
+              {phaseLabel && isActive && (
+                <span className="flex items-center gap-1">
+                  <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6l4 2" />
+                    <circle cx="12" cy="12" r="9" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                  <span>{phaseLabel}</span>
                 </span>
               )}
             </div>
@@ -721,6 +749,7 @@ export default function Scans() {
         : false;
     },
   });
+  const isAuthError = error instanceof ApiError && error.status === 401;
 
   const { data: repos } = useQuery({
     queryKey: ["repos"],
@@ -991,9 +1020,16 @@ export default function Scans() {
           <svg className="h-5 w-5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
           </svg>
-          <span className="text-sm">
-            {error instanceof Error ? error.message : "Unable to load scans."}
-          </span>
+          <div className="text-sm">
+            <div>
+              {error instanceof Error ? error.message : "Unable to load scans."}
+            </div>
+            {isAuthError ? (
+              <div className="mt-1 text-xs text-rose-100/80">
+                Sign in to load scan history.
+              </div>
+            ) : null}
+          </div>
         </div>
       )}
 

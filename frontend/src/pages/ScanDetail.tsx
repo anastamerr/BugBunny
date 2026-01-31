@@ -2,9 +2,11 @@ import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useParams } from "react-router-dom";
 
+import { ApiError } from "../api/errors";
 import { scansApi } from "../api/scans";
 import { BackLink } from "../components/BackLink";
 import { FindingCard } from "../components/FindingCard";
+import { groupFindingsForDisplay } from "../utils/dastGrouping";
 import type { Finding, Scan } from "../types";
 
 function statusClass(status: Scan["status"]) {
@@ -49,6 +51,38 @@ function shortSha(value?: string | null) {
 function formatList(values?: string[] | null, emptyLabel = "none") {
   if (!values || values.length === 0) return emptyLabel;
   return values.join(", ");
+}
+
+const PHASE_LABELS: Record<string, string> = {
+  "sast.clone": "SAST · Cloning",
+  "sast.scan": "SAST · Semgrep",
+  "sast.analyze": "SAST · AI triage",
+  "dast.deploy": "DAST · Deploy",
+  "dast.verify": "DAST · Verification",
+  "dast.spider": "DAST · Spider",
+  "dast.active_scan": "DAST · Active scan",
+  "dast.alerts": "DAST · Alerts",
+  "dast.targeted": "DAST · Targeted checks",
+  correlation: "Correlation",
+  completed: "Completed",
+  failed: "Failed",
+};
+
+function formatPhase(value?: string | null) {
+  if (!value) return null;
+  return PHASE_LABELS[value] || value.replace(/[_\.]/g, " ");
+}
+
+function formatDastVerification(value?: string | null) {
+  if (!value) return null;
+  const labels: Record<string, string> = {
+    verified: "DAST verified",
+    unverified_url: "DAST unverified URL",
+    commit_mismatch: "DAST commit mismatch",
+    verification_error: "DAST verification error",
+    not_applicable: "DAST not applicable",
+  };
+  return labels[value] || `DAST ${value.replace(/[_\.]/g, " ")}`;
 }
 
 export default function ScanDetail() {
@@ -229,6 +263,8 @@ export default function ScanDetail() {
 
   const isDastEnabled = scan?.scan_type !== "sast";
   const headline = scan?.repo_url || scan?.target_url || "DAST scan";
+  const phaseLabel = formatPhase(scan?.phase);
+  const dastVerificationLabel = formatDastVerification(scan?.dast_verification_status);
 
   const telemetry = useMemo(() => {
     const detectedLanguages = formatList(
@@ -277,6 +313,14 @@ export default function ScanDetail() {
     findingsError instanceof Error
       ? findingsError.message
       : "Unable to load findings.";
+  const isAuthError = scanError instanceof ApiError && scanError.status === 401;
+  const { items: groupedFindings, rawDastCount, groupedDastCount } = useMemo(
+    () => groupFindingsForDisplay(findings ?? []),
+    [findings],
+  );
+  const rawFindingsCount = (findings || []).length;
+  const groupedFindingsCount = groupedFindings.length;
+  const hasGroupedDast = rawDastCount > 0 && groupedDastCount > 0;
 
   if (!id) {
     return (
@@ -371,6 +415,11 @@ export default function ScanDetail() {
               <p className="mt-1 text-sm text-white/60">
                 {scanError ? scanErrorMessage : "Scan not found."}
               </p>
+              {isAuthError ? (
+                <p className="mt-2 text-xs text-rose-200">
+                  Sign in to view this scan.
+                </p>
+              ) : null}
             </div>
             <div className="flex flex-wrap items-center gap-2">
               {scanError ? (
@@ -421,6 +470,9 @@ export default function ScanDetail() {
               ) : null}
               {scan.scan_type !== "sast" ? (
                 <span className="badge">DAST</span>
+              ) : null}
+              {dastVerificationLabel && scan.scan_type !== "sast" ? (
+                <span className="badge">{dastVerificationLabel}</span>
               ) : null}
               {scan.scan_type !== "dast" ? (
                 <span className="badge">branch {scan.branch}</span>
@@ -595,6 +647,12 @@ export default function ScanDetail() {
                 style={{ width: `${progressWidth}%` }}
               />
             </div>
+            {phaseLabel ? (
+              <div className="mt-2 text-xs text-white/60">
+                Phase: {phaseLabel}
+                {scan.phase_message ? ` — ${scan.phase_message}` : ""}
+              </div>
+            ) : null}
           </div>
         ) : null}
       </div>
@@ -697,9 +755,20 @@ export default function ScanDetail() {
               checked={includeFalsePositives}
               onChange={(event) => setIncludeFalsePositives(event.target.checked)}
             />
-            Include false positives
+            <span>Include false positives</span>
           </label>
         </div>
+        {rawFindingsCount > 0 ? (
+          <div className="mt-2 text-xs text-white/60">
+            {hasGroupedDast ? (
+              <span>
+                {rawDastCount} raw alerts → {groupedDastCount} grouped findings
+              </span>
+            ) : (
+              <span>{groupedFindingsCount} findings</span>
+            )}
+          </div>
+        ) : null}
       </div>
 
       {reportError ? (
@@ -761,7 +830,7 @@ export default function ScanDetail() {
       ) : null}
 
       <div className="space-y-4">
-        {(findings || []).map((finding: Finding) => (
+        {groupedFindings.map((finding: Finding) => (
           <FindingCard
             key={finding.id}
             finding={finding}
@@ -786,7 +855,7 @@ export default function ScanDetail() {
           />
         ))}
 
-        {!findingsLoading && !findingsError && (findings || []).length === 0 ? (
+        {!findingsLoading && !findingsError && groupedFindingsCount === 0 ? (
           <div className="surface-solid p-6 text-sm text-white/60">
             {scan.status === "completed"
               ? "No findings for this scan."

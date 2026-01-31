@@ -6,6 +6,9 @@ import { useAuth } from "../../hooks/useAuth";
 export function RequireAuth({ children }: { children: ReactNode }) {
   const { user, loading } = useAuth();
   const location = useLocation();
+  const devBypass =
+    String(import.meta.env.VITE_DEV_AUTH_BYPASS).toLowerCase() === "true" ||
+    Boolean(import.meta.env.VITE_DEV_BEARER_TOKEN);
 
   if (loading) {
     return (
@@ -17,7 +20,7 @@ export function RequireAuth({ children }: { children: ReactNode }) {
     );
   }
 
-  if (!user) {
+  if (!user && !devBypass) {
     return <Navigate to="/login" replace state={{ from: location.pathname }} />;
   }
 

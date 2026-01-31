@@ -36,6 +36,7 @@ export interface Scan {
   filtered_findings: number;
   dast_findings: number;
   dast_confirmed_count: number;
+  dast_verification_status?: string | null;
   error_message?: string | null;
   pr_number?: number | null;
   pr_url?: string | null;
@@ -45,8 +46,12 @@ export interface Scan {
   rulesets?: string[] | null;
   scanned_files?: number | null;
   semgrep_version?: string | null;
+  phase?: string | null;
+  phase_message?: string | null;
   created_at: string;
   updated_at: string;
+  report_url?: string | null;
+  report_generated_at?: string | null;
 }
 
 export interface Repository {
@@ -105,6 +110,7 @@ export interface Finding {
   call_path?: string[] | null;
   status: "new" | "confirmed" | "dismissed";
   priority_score?: number | null;
+  dedupe_key?: string | null;
   fix_status?: "generated" | "pr_opened" | "failed" | null;
   fix_summary?: string | null;
   fix_patch?: string | null;
@@ -113,6 +119,9 @@ export interface Finding {
   fix_error?: string | null;
   fix_confidence?: number | null;
   fix_generated_at?: string | null;
+  affected_urls?: string[] | null;
+  raw_findings?: Finding[] | null;
+  raw_count?: number | null;
   created_at: string;
   updated_at: string;
 }

@@ -41,11 +41,12 @@ const dastStatusLabels: Record<string, string> = {
   not_confirmed: "⚪ not confirmed",
   inconclusive: "❓ inconclusive",
   attempted_not_reproduced: "⚪ not confirmed",
-  blocked_auth_required: "❓ inconclusive",
-  blocked_rate_limit: "❓ inconclusive",
+  blocked_auth_required: "🔒 auth required",
+  blocked_rate_limit: "⏳ rate limited",
   inconclusive_mapping: "❓ inconclusive",
-  error_timeout: "❓ inconclusive",
-  error_tooling: "❓ inconclusive",
+  bad_request: "⚠️ bad request",
+  error_timeout: "⏱️ timeout",
+  error_tooling: "⚠️ DAST error",
   not_run: "⚫ SAST only (no DAST run)",
 };
 
@@ -57,6 +58,7 @@ const dastStatusStyles: Record<string, string> = {
   blocked_auth_required: "badge border-violet-400/40 bg-violet-400/10 text-violet-200",
   blocked_rate_limit: "badge border-violet-400/40 bg-violet-400/10 text-violet-200",
   inconclusive_mapping: "badge border-violet-400/40 bg-violet-400/10 text-violet-200",
+  bad_request: "badge border-violet-400/40 bg-violet-400/10 text-violet-200",
   error_timeout: "badge border-violet-400/40 bg-violet-400/10 text-violet-200",
   error_tooling: "badge border-violet-400/40 bg-violet-400/10 text-violet-200",
   not_run: "badge border-white/20 bg-white/10 text-white/70",
@@ -88,6 +90,7 @@ export function FindingCard({
   autoFixError = null,
 }: FindingCardProps) {
   const [isExpanded, setIsExpanded] = useState(false);
+  const [showAffectedUrls, setShowAffectedUrls] = useState(false);
 
   const findingType = finding.finding_type || "sast";
   const isDast = findingType === "dast";
@@ -98,6 +101,23 @@ export function FindingCard({
     () => (finding.evidence || []).filter(Boolean),
     [finding.evidence],
   );
+  const affectedUrls = useMemo(() => {
+    if (finding.affected_urls && finding.affected_urls.length > 0) {
+      return Array.from(new Set(finding.affected_urls.filter(Boolean)));
+    }
+    if (finding.raw_findings && finding.raw_findings.length > 0) {
+      const urls = finding.raw_findings
+        .map(
+          (item) =>
+            item.matched_at || item.endpoint || item.file_path || "",
+        )
+        .filter(Boolean);
+      return Array.from(new Set(urls));
+    }
+    const fallback =
+      finding.matched_at || finding.endpoint || finding.file_path || "";
+    return fallback ? [fallback] : [];
+  }, [finding]);
   const cveList = formatList(finding.cve_ids);
   const cweList = formatList(finding.cwe_ids);
   const hasDastEvidence =
@@ -315,6 +335,26 @@ export function FindingCard({
                     "No description provided.",
                   )}
                 </p>
+                {affectedUrls.length > 1 ? (
+                  <div className="mt-4">
+                    <button
+                      type="button"
+                      className="btn-ghost text-xs"
+                      onClick={() => setShowAffectedUrls((prev) => !prev)}
+                    >
+                      {showAffectedUrls
+                        ? "Hide affected URLs"
+                        : `Affected URLs (${affectedUrls.length})`}
+                    </button>
+                    {showAffectedUrls ? (
+                      <ul className="mt-2 list-disc space-y-1 pl-4 text-xs text-white/80">
+                        {affectedUrls.map((url) => (
+                          <li key={`${finding.id}-affected-${url}`}>{url}</li>
+                        ))}
+                      </ul>
+                    ) : null}
+                  </div>
+                ) : null}
                 <div className="mt-4 text-xs font-semibold uppercase tracking-[0.2em] text-white/60">
                   Remediation
                 </div>
