@@ -49,13 +49,21 @@ class Settings(BaseSettings):
     zap_max_depth: Optional[int] = None
     zap_scan_policy: Optional[str] = None
     zap_docker_extra_hosts: Optional[str] = None  # comma-separated host:ip mappings
+    zap_base_url: Optional[str] = None
+    zap_host_port: Optional[int] = None
+    zap_keepalive_seconds: Optional[int] = None
+    zap_host_header: Optional[str] = None
     dast_allowed_hosts: Optional[str] = None
     dast_deploy_script: Optional[str] = None
+    dast_default_auth_header: Optional[str] = None  # Format: "Header-Name: value"
     dast_require_verification: bool = False
     dast_verification_timeout: int = 5
     scan_max_active: Optional[int] = None
     scan_min_interval_seconds: Optional[int] = None
     dependency_health_use_llm: bool = True
+    dev_auth_bypass: bool = False
+    dev_auth_user_id: Optional[str] = None
+    dev_auth_email: Optional[str] = None
 
     if SettingsConfigDict is not None:
         _ENV_FILE = Path(__file__).resolve().parents[1] / ".env"

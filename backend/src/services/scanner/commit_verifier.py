@@ -36,13 +36,29 @@ class CommitVerifier:
         """
         async with httpx.AsyncClient(timeout=self.timeout, follow_redirects=True) as client:
             try:
-                # Try standard version endpoint
+                # Basic reachability check (GET target URL).
+                base_url = target_url.rstrip("/") or target_url
+                reachability = await client.get(base_url)
+
+                if reachability.status_code >= 500 or reachability.status_code == 429:
+                    return (
+                        "verification_error",
+                        f"Target returned {reachability.status_code} during reachability check",
+                    )
+
+                # Try standard version endpoint (optional)
                 resp = await client.get(
-                    f"{target_url.rstrip('/')}/.well-known/scanguard-version"
+                    f"{base_url}/.well-known/scanguard-version"
                 )
 
                 if resp.status_code == 200:
-                    data = resp.json()
+                    try:
+                        data = resp.json()
+                    except ValueError:
+                        return (
+                            "verification_error",
+                            "Version endpoint returned non-JSON response",
+                        )
                     actual_sha = data.get("commit_sha", "").strip()
 
                     if not actual_sha:
@@ -73,6 +89,11 @@ class CommitVerifier:
                     return (
                         "verification_error",
                         "Version endpoint not found (/.well-known/scanguard-version)",
+                    )
+                elif resp.status_code >= 500 or resp.status_code == 429:
+                    return (
+                        "verification_error",
+                        f"Version endpoint returned {resp.status_code}",
                     )
                 else:
                     return (

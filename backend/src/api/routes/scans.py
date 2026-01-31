@@ -187,6 +187,8 @@ async def create_scan(
         dast_cookies=payload.dast_cookies,
         dast_verification_status=dast_verification_status,
         status="pending",
+        phase="pending",
+        phase_message="Queued",
         trigger="manual",
         total_findings=0,
         filtered_findings=0,
@@ -629,6 +631,66 @@ async def autofix_finding(
         finding=FindingRead.model_validate(finding),
     )
 
+
+@router.get("/{id}/policy")
+async def evaluate_scan_policy(
+    id: str,
+    fail_on: str = Query(default="high", pattern="^(info|low|medium|high|critical)$"),
+    include_false_positives: bool = Query(default=False),
+    current_user: CurrentUser = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Evaluate scan findings against policy threshold for CI/CD integration.
+
+    Returns a policy result indicating whether the scan passes or fails based on
+    the severity threshold. Exit code 0 = pass, 1 = fail.
+
+    Args:
+        id: Scan UUID
+        fail_on: Minimum severity to fail on (info|low|medium|high|critical). Default: high
+        include_false_positives: Whether to include findings marked as false positives
+
+    Returns:
+        JSON with: {passed, exit_code, fail_on, violations_count, violations}
+    """
+    from ...services.scanner.scan_policy import evaluate_scan_policy as eval_policy
+
+    scan_uuid = _parse_uuid(id, "Scan not found")
+    scan = db.query(Scan).filter(Scan.id == scan_uuid).first()
+    if not scan:
+        raise HTTPException(status_code=404, detail="Scan not found")
+    if scan.user_id != current_user.id:
+        raise HTTPException(status_code=404, detail="Scan not found")
+
+    try:
+        result = eval_policy(
+            db=db,
+            scan_id=str(scan_uuid),
+            fail_on=fail_on,
+            include_false_positives=include_false_positives,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    return {
+        "passed": result.passed,
+        "exit_code": result.exit_code,
+        "fail_on": result.fail_on,
+        "violations_count": result.violations_count,
+        "violations": [
+            {
+                "finding_id": v.finding_id,
+                "severity": v.severity,
+                "rule_id": v.rule_id,
+                "rule_message": v.rule_message,
+                "file_path": v.file_path,
+                "line_start": v.line_start,
+            }
+            for v in result.violations
+        ],
+    }
 
 
 def _parse_uuid(value: str, message: str) -> uuid.UUID:

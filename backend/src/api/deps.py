@@ -32,6 +32,19 @@ def get_db() -> Generator[Session, None, None]:
 def get_current_user(
     authorization: Optional[str] = Header(default=None),
 ) -> CurrentUser:
+    settings = get_settings()
+    if settings.dev_auth_bypass:
+        fallback_id = "00000000-0000-0000-0000-000000000000"
+        raw_id = settings.dev_auth_user_id or fallback_id
+        try:
+            user_id = uuid.UUID(raw_id)
+        except ValueError:
+            user_id = uuid.UUID(fallback_id)
+        return CurrentUser(
+            id=user_id,
+            email=settings.dev_auth_email or "dev@local",
+            role="developer",
+        )
     if not authorization:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -50,7 +63,6 @@ def get_current_user(
             detail="Missing bearer token",
         )
 
-    settings = get_settings()
     if not settings.supabase_jwt_secret:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -91,4 +103,3 @@ def get_current_user(
     email = payload.get("email")
     role = payload.get("role")
     return CurrentUser(id=user_id, email=email, role=role)
-
