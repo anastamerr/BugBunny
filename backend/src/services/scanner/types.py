@@ -64,6 +64,10 @@ class TriagedFinding:
     dast_cve_ids: Optional[List[str]] = None
     dast_cwe_ids: Optional[List[str]] = None
     dast_verification_status: Optional[str] = None
+    sast_vuln_type: Optional[str] = None
+    sast_endpoint: Optional[str] = None
+    sast_http_method: Optional[str] = None
+    sast_parameter: Optional[str] = None
 
 
 @dataclass
@@ -110,6 +114,8 @@ class DASTAttackConfig:
     http_method: str = "GET"
     sast_rule_id: str = ""
     endpoint_mapping_confidence: float = 0.5  # Confidence in endpoint mapping
+    endpoint_discovered: bool = False  # True if spider discovered the endpoint
+    endpoint_status_codes: Optional[List[int]] = None  # HTTP status codes observed during discovery
 
 
 @dataclass
@@ -128,6 +134,9 @@ class DASTAttackResult:
     cve_ids: Optional[List[str]] = None
     cwe_ids: Optional[List[str]] = None
     error: Optional[str] = None
+    is_reachable: Optional[bool] = None
+    reachability_score: Optional[float] = None
+    reachability_reason: Optional[str] = None
 
 
 @dataclass
@@ -159,3 +168,4 @@ class DiscoveredEndpoint:
     query_params: List[str]  # Query parameter names
     form_params: List[str]  # Form/POST parameter names
     path_segments: List[str]  # Path segments that look like IDs or dynamic values
+    status_codes: List[int]  # HTTP status codes observed for this path

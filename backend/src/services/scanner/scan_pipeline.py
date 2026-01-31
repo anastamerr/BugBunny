@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
 import uuid
+from urllib.parse import urlparse
 from typing import TYPE_CHECKING, Optional
 
 from sqlalchemy.orm import Session
@@ -17,6 +19,7 @@ from .correlation import correlate_findings
 from .context_extractor import ContextExtractor
 from .finding_aggregator import FindingAggregator
 from .dast_runner import DASTRunner
+from .sast_metadata import SASTMetadataExtractor
 from .commit_verifier import CommitVerifier
 from .deployment_service import DeploymentService
 from .targeted_dast_runner import TargetedDASTRunner
@@ -51,6 +54,7 @@ async def run_scan_pipeline(
     fetcher = RepoFetcher()
     runner = SemgrepRunner()
     extractor = ContextExtractor()
+    metadata_extractor = SASTMetadataExtractor()
     logger.info(f"[{scan_id}] Initializing AI triage engine...")
     triage = AITriageEngine()
     logger.info(f"[{scan_id}] Getting Pinecone client...")
@@ -62,6 +66,21 @@ async def run_scan_pipeline(
     dependency_health_scanner = DependencyHealthScanner()
     deployment_service = DeploymentService()
     logger.info(f"[{scan_id}] All services initialized")
+
+    async def _report_phase(phase: str, message: Optional[str] = None) -> None:
+        _update_scan(
+            db,
+            scan_id,
+            phase=phase,
+            phase_message=message,
+        )
+        payload = {"scan_id": str(scan_id), "phase": phase}
+        if message:
+            payload["message"] = message
+        try:
+            await sio.emit("scan.updated", payload)
+        except Exception as exc:
+            logger.warning(f"[{scan_id}] Socket.IO emit failed: {exc}")
 
     try:
         logger.info(f"[{scan_id}] Fetching scan from DB...")
@@ -101,12 +120,23 @@ async def run_scan_pipeline(
             logger.info(f"[{scan_id}] Starting SAST scan for {repo_url}")
             await _wait_for_resume(db, scan_id)
             logger.info(f"[{scan_id}] Updating status to cloning...")
-            _update_scan(db, scan_id, status="cloning")
+            _update_scan(
+                db,
+                scan_id,
+                status="cloning",
+                phase="sast.clone",
+                phase_message="Cloning repository",
+            )
             logger.info(f"[{scan_id}] Emitting cloning status via Socket.IO...")
             try:
                 await sio.emit(
                     "scan.updated",
-                    {"scan_id": str(scan_id), "status": "cloning", "phase": "SAST"},
+                    {
+                        "scan_id": str(scan_id),
+                        "status": "cloning",
+                        "phase": "sast.clone",
+                        "message": "Cloning repository",
+                    },
                 )
             except Exception as e:
                 logger.warning(f"[{scan_id}] Socket.IO emit failed: {e}")
@@ -168,10 +198,21 @@ async def run_scan_pipeline(
                     {"scan_id": str(scan_id), "branch": resolved_branch},
                 )
             await _wait_for_resume(db, scan_id)
-            _update_scan(db, scan_id, status="scanning")
+            _update_scan(
+                db,
+                scan_id,
+                status="scanning",
+                phase="sast.scan",
+                phase_message="Running Semgrep",
+            )
             await sio.emit(
                 "scan.updated",
-                {"scan_id": str(scan_id), "status": "scanning", "phase": "SAST"},
+                {
+                    "scan_id": str(scan_id),
+                    "status": "scanning",
+                    "phase": "sast.scan",
+                    "message": "Running Semgrep",
+                },
             )
 
             languages, scanned_files = fetcher.analyze_repo(repo_path)
@@ -194,10 +235,17 @@ async def run_scan_pipeline(
                 scan_id,
                 status="analyzing",
                 total_findings=len(raw_findings),
+                phase="sast.analyze",
+                phase_message="Running AI triage",
             )
             await sio.emit(
                 "scan.updated",
-                {"scan_id": str(scan_id), "status": "analyzing", "phase": "SAST"},
+                {
+                    "scan_id": str(scan_id),
+                    "status": "analyzing",
+                    "phase": "sast.analyze",
+                    "message": "Running AI triage",
+                },
             )
 
             contexts = [extractor.extract(repo_path, finding) for finding in raw_findings]
@@ -207,8 +255,9 @@ async def run_scan_pipeline(
                 await _wait_for_resume(db, scan_id)
                 batch = triage_inputs[offset : offset + TRIAGE_BATCH_SIZE]
                 triaged.extend(await triage.triage_batch(batch))
-            # Apply dedupe and update Pinecone index for actionable findings.
-            triaged = await aggregator.process(triaged)
+            # Enrich SAST findings with endpoint/method/parameter metadata.
+            if repo_path:
+                metadata_extractor.enrich_findings(triaged, repo_path)
 
             if dependency_scanner.is_available():
                 await _wait_for_resume(db, scan_id)
@@ -246,10 +295,21 @@ async def run_scan_pipeline(
                     )
 
                 await _wait_for_resume(db, scan_id)
-                _update_scan(db, scan_id, status="scanning")
+                _update_scan(
+                    db,
+                    scan_id,
+                    status="scanning",
+                    phase="dast.deploy",
+                    phase_message="Deploying target for DAST verification",
+                )
                 await sio.emit(
                     "scan.updated",
-                    {"scan_id": str(scan_id), "status": "scanning", "phase": "deploy"},
+                    {
+                        "scan_id": str(scan_id),
+                        "status": "scanning",
+                        "phase": "dast.deploy",
+                        "message": "Deploying target for DAST verification",
+                    },
                 )
 
                 target_url = await deployment_service.deploy(
@@ -265,10 +325,21 @@ async def run_scan_pipeline(
 
         if scan_type in {"dast", "both"} and target_url:
             await _wait_for_resume(db, scan_id)
-            _update_scan(db, scan_id, status="scanning")
+            _update_scan(
+                db,
+                scan_id,
+                status="scanning",
+                phase="dast.verify",
+                phase_message="Preparing DAST verification",
+            )
             await sio.emit(
                 "scan.updated",
-                {"scan_id": str(scan_id), "status": "scanning", "phase": "DAST"},
+                {
+                    "scan_id": str(scan_id),
+                    "status": "scanning",
+                    "phase": "dast.verify",
+                    "message": "Preparing DAST verification",
+                },
             )
 
             # Ensure scan-level DAST verification status is persisted before any ZAP work.
@@ -289,6 +360,10 @@ async def run_scan_pipeline(
                 )
             else:
                 if commit_sha:
+                    await _report_phase(
+                        "dast.verify",
+                        "Verifying deployment version",
+                    )
                     try:
                         verification_status, message = (
                             await commit_verifier.verify_deployment(
@@ -316,16 +391,16 @@ async def run_scan_pipeline(
                         dast_verification_status="unverified_url",
                     )
 
-            # Run targeted DAST if we have SAST findings to verify
-            if triaged:
-                await sio.emit(
-                    "scan.updated",
-                    {
-                        "scan_id": str(scan_id),
-                        "status": "scanning",
-                        "phase": "DAST",
-                        "message": f"Targeting {len([f for f in triaged if not f.is_false_positive])} SAST findings for verification",
-                    },
+            # Run targeted DAST if we have SAST findings to verify (local targets only)
+            is_local_target = _is_local_target_url(target_url)
+            if triaged and is_local_target:
+                await _report_phase(
+                    "dast.targeted",
+                    (
+                        "Targeting "
+                        f"{len(triaged)} "
+                        "SAST findings for verification"
+                    ),
                 )
                 targeted_dast_results = await targeted_dast_runner.attack_findings(
                     target_url,
@@ -333,6 +408,7 @@ async def run_scan_pipeline(
                     str(repo_path) if repo_path else "",
                     commit_sha=commit_sha,
                     scan_id=scan_id,
+                    progress_cb=_report_phase,
                 )
                 # Map results back to findings
                 triaged, dast_confirmed_count = targeted_dast_runner.map_results_to_findings(
@@ -342,24 +418,15 @@ async def run_scan_pipeline(
                 )
                 if targeted_dast_runner.last_error:
                     dast_error = f"Targeted DAST error: {targeted_dast_runner.last_error}"
-
-            # Also run blind DAST scan for additional coverage
-            if dast_runner.is_available():
-                dast_findings = await dast_runner.scan(
-                    target_url,
-                    auth_headers=scan.dast_auth_headers if scan else None,
-                    cookies=scan.dast_cookies if scan else None,
+            elif triaged and target_url:
+                logger.info("Skipping targeted DAST - remote targets not yet supported")
+                await _report_phase(
+                    "dast.targeted",
+                    "Skipping targeted DAST for remote target",
                 )
-                if dast_runner.last_error:
-                    dast_error = _merge_error_message(
-                        dast_error,
-                        f"DAST error: {dast_runner.last_error}",
-                    ) if dast_error else f"DAST error: {dast_runner.last_error}"
-            else:
-                dast_error = _merge_error_message(
-                    dast_error,
-                    "DAST error: Docker not available for ZAP.",
-                ) if dast_error else "DAST error: Docker not available for ZAP."
+
+            # Blind DAST disabled: targeted DAST already verifies SAST findings.
+            logger.info("Skipping blind DAST - targeted DAST already ran")
 
             _update_scan(
                 db,
@@ -378,6 +445,8 @@ async def run_scan_pipeline(
                         scan_id,
                         status="failed",
                         error_message=error_message,
+                        phase="failed",
+                        phase_message="DAST scan failed",
                     )
                     await sio.emit(
                         "scan.failed",
@@ -398,13 +467,20 @@ async def run_scan_pipeline(
             _update_scan(db, scan_id, error_message=error_message)
 
         await _wait_for_resume(db, scan_id)
-        _update_scan(db, scan_id, status="analyzing")
+        _update_scan(
+            db,
+            scan_id,
+            status="analyzing",
+            phase="correlation",
+            phase_message="Correlating SAST and DAST findings",
+        )
         await sio.emit(
             "scan.updated",
             {
                 "scan_id": str(scan_id),
                 "status": "analyzing",
                 "phase": "correlation",
+                "message": "Correlating SAST and DAST findings",
             },
         )
 
@@ -421,11 +497,13 @@ async def run_scan_pipeline(
             # Check if this finding was tested by targeted DAST
             finding_key = f"{item.rule_id}:{item.file_path}:{item.line_start}"
             dast_result = dast_result_map.get(finding_key)
-            dast_status = (
-                dast_result.verification_status
-                if dast_result
-                else "not_run"
-            )
+            dast_status = None
+            if dast_result:
+                dast_status = dast_result.verification_status
+            elif getattr(item, "dast_verification_status", None):
+                dast_status = item.dast_verification_status
+            if not dast_status:
+                dast_status = "not_run"
             was_dast_verified = dast_status != "not_run"
 
             db.add(
@@ -450,6 +528,10 @@ async def run_scan_pipeline(
                     is_test_file=item.is_test_file,
                     is_generated=item.is_generated,
                     imports=item.imports,
+                    sast_vuln_type=getattr(item, "sast_vuln_type", None),
+                    sast_endpoint=getattr(item, "sast_endpoint", None),
+                    sast_http_method=getattr(item, "sast_http_method", None),
+                    sast_parameter=getattr(item, "sast_parameter", None),
                     matched_at=item.dast_matched_at,
                     endpoint=item.dast_endpoint,
                     curl_command=item.dast_curl_command,
@@ -466,6 +548,13 @@ async def run_scan_pipeline(
                     call_path=getattr(item, "call_path", None),
                     status="new",
                     priority_score=priority_score,
+                    dedupe_key=_build_dedupe_key(
+                        "sast",
+                        item.rule_id,
+                        item.file_path,
+                        str(item.line_start),
+                        str(item.line_end),
+                    ),
                 )
             )
 
@@ -507,6 +596,11 @@ async def run_scan_pipeline(
                     dast_verified=True,
                     status="new",
                     priority_score=priority_score,
+                    dedupe_key=_build_dedupe_key(
+                        "dast",
+                        item.template_id,
+                        item.matched_at or item.endpoint or item.template_name,
+                    ),
                 )
             )
 
@@ -554,6 +648,13 @@ async def run_scan_pipeline(
                     confirmed_exploitable=False,
                     status="new",
                     priority_score=priority_score,
+                    dedupe_key=_build_dedupe_key(
+                        "dependency",
+                        item.cve_id,
+                        item.package_name,
+                        item.installed_version,
+                        item.target,
+                    ),
                 )
             )
 
@@ -606,6 +707,13 @@ async def run_scan_pipeline(
                     confirmed_exploitable=False,
                     status="new",
                     priority_score=priority_score,
+                    dedupe_key=_build_dedupe_key(
+                        "dependency_health",
+                        item.package_name,
+                        item.status,
+                        item.file_path,
+                        item.installed_version or item.requirement,
+                    ),
                 )
             )
 
@@ -633,6 +741,8 @@ async def run_scan_pipeline(
             status="completed",
             total_findings=total_findings,
             filtered_findings=filtered_findings,
+            phase="completed",
+            phase_message="Scan completed",
         )
 
         # Log metrics for observability
@@ -664,7 +774,14 @@ async def run_scan_pipeline(
     except ScanCancelled:
         return
     except Exception as exc:
-        _update_scan(db, scan_id, status="failed", error_message=str(exc))
+        _update_scan(
+            db,
+            scan_id,
+            status="failed",
+            error_message=str(exc),
+            phase="failed",
+            phase_message="Scan failed",
+        )
         await sio.emit(
             "scan.failed",
             {"scan_id": str(scan_id), "status": "failed", "error": str(exc)},
@@ -700,6 +817,8 @@ def _update_scan(
     commit_url: Optional[str] = None,
     target_url: Optional[str] = None,
     dast_verification_status: Optional[str] = None,
+    phase: Optional[str] = None,
+    phase_message: Optional[str] = None,
     total_findings: Optional[int] = None,
     filtered_findings: Optional[int] = None,
     dast_findings: Optional[int] = None,
@@ -725,6 +844,10 @@ def _update_scan(
         scan.target_url = target_url
     if dast_verification_status is not None:
         scan.dast_verification_status = dast_verification_status
+    if phase is not None:
+        scan.phase = phase
+    if phase_message is not None:
+        scan.phase_message = phase_message
     if total_findings is not None:
         scan.total_findings = total_findings
     if filtered_findings is not None:
@@ -782,6 +905,8 @@ def _build_commit_url(repo_url: str | None, commit_sha: str | None) -> str | Non
 
 
 def _normalize_dast_severity(value: str) -> str:
+    # ZAP risk mapping: High/Critical -> ERROR, Medium/Moderate -> WARNING,
+    # Low/Informational -> INFO. Avoid inflating low-level headers like CSP/HSTS.
     normalized = (value or "").lower()
     if normalized in {"critical", "high"}:
         return "ERROR"
@@ -864,3 +989,29 @@ def _merge_error_message(current: Optional[str], new_message: str) -> str:
     if new_message in current:
         return current
     return f"{current}\n{new_message}"
+
+
+def _is_local_target_url(target_url: Optional[str]) -> bool:
+    if not target_url:
+        return False
+    normalized = target_url.strip().lower()
+    if not normalized:
+        return False
+    if "localhost" in normalized or "127.0.0.1" in normalized or "[::1]" in normalized:
+        return True
+    if ":3000" in normalized or ":8080" in normalized:
+        return True
+    try:
+        parsed = urlparse(normalized if "://" in normalized else f"http://{normalized}")
+    except Exception:
+        return False
+    host = parsed.hostname or ""
+    return host in {"localhost", "127.0.0.1", "::1"}
+
+
+def _build_dedupe_key(*parts: Optional[str]) -> str:
+    normalized = "|".join(
+        part.strip() for part in parts if part is not None and str(part).strip()
+    )
+    digest = hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+    return digest
