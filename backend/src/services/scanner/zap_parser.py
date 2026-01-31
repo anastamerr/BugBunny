@@ -17,11 +17,82 @@ VULN_KEYWORDS: Dict[str, List[str]] = {
     "ssti": ["ssti", "template injection", "server-side template"],
     "open-redirect": ["open redirect", "unvalidated redirect"],
     "deserialization": ["deserialization", "deserialize", "unserialize", "pickle"],
+    "idor": ["idor", "insecure direct object"],
 }
 
+RULE_ID_VULN_MAP: Dict[str, str] = {
+    "python.django.security.injection.sql-injection": "sqli",
+    "semgrep.sql-injection": "sqli",
+    "javascript.lang.security.audit.code-string-concat.code-string-concat": "code-injection",
+    "javascript.express.security.audit.express-open-redirect.express-open-redirect": "open-redirect",
+}
 
-def classify_vulnerability(text: str) -> Optional[str]:
-    value = text.lower()
+RULE_ID_VULN_PATTERNS = [
+    (re.compile(r"(?:^|[._-])sql[-_]?injection", re.IGNORECASE), "sqli"),
+    (re.compile(r"(?:^|[._-])sqli(?:[._-]|$)", re.IGNORECASE), "sqli"),
+    (re.compile(r"(?:^|[._-])xss(?:[._-]|$)", re.IGNORECASE), "xss"),
+    (
+        re.compile(r"(?:^|[._-])command[-_]?injection", re.IGNORECASE),
+        "command-injection",
+    ),
+    (
+        re.compile(r"(?:^|[._-])os[-_]?command", re.IGNORECASE),
+        "command-injection",
+    ),
+    (
+        re.compile(r"(?:^|[._-])code[-_]?string[-_]?concat", re.IGNORECASE),
+        "code-injection",
+    ),
+    (re.compile(r"(?:^|[._-])code[-_]?injection", re.IGNORECASE), "code-injection"),
+    (re.compile(r"(?:^|[._-])path[-_]?traversal", re.IGNORECASE), "path-traversal"),
+    (
+        re.compile(r"(?:^|[._-])directory[-_]?traversal", re.IGNORECASE),
+        "path-traversal",
+    ),
+    (re.compile(r"(?:^|[._-])lfi(?:[._-]|$)", re.IGNORECASE), "path-traversal"),
+    (re.compile(r"(?:^|[._-])ssrf(?:[._-]|$)", re.IGNORECASE), "ssrf"),
+    (
+        re.compile(r"server[-_]?side[-_]?request[-_]?forgery", re.IGNORECASE),
+        "ssrf",
+    ),
+    (re.compile(r"(?:^|[._-])xxe(?:[._-]|$)", re.IGNORECASE), "xxe"),
+    (re.compile(r"(?:^|[._-])ssti(?:[._-]|$)", re.IGNORECASE), "ssti"),
+    (re.compile(r"(?:^|[._-])template[-_]?injection", re.IGNORECASE), "ssti"),
+    (re.compile(r"(?:^|[._-])open[-_]?redirect", re.IGNORECASE), "open-redirect"),
+    (re.compile(r"deseriali[sz]ation", re.IGNORECASE), "deserialization"),
+    (re.compile(r"(?:^|[._-])pickle", re.IGNORECASE), "deserialization"),
+    (re.compile(r"(?:^|[._-])idor(?:[._-]|$)", re.IGNORECASE), "idor"),
+    (
+        re.compile(r"insecure[-_]?direct[-_]?object[-_]?reference", re.IGNORECASE),
+        "idor",
+    ),
+]
+
+
+def map_rule_id_to_vuln_type(rule_id: str) -> Optional[str]:
+    if not rule_id:
+        return None
+    normalized = rule_id.strip().lower()
+    if not normalized:
+        return None
+    if normalized in RULE_ID_VULN_MAP:
+        return RULE_ID_VULN_MAP[normalized]
+    for pattern, vuln_type in RULE_ID_VULN_PATTERNS:
+        if pattern.search(normalized):
+            return vuln_type
+    return None
+
+
+def classify_vulnerability(text: str, rule_id: Optional[str] = None) -> Optional[str]:
+    if rule_id:
+        mapped = map_rule_id_to_vuln_type(rule_id)
+        if mapped:
+            return mapped
+    if text:
+        mapped = map_rule_id_to_vuln_type(text)
+        if mapped:
+            return mapped
+    value = (text or "").lower()
     for vuln_type, keywords in VULN_KEYWORDS.items():
         if any(keyword in value for keyword in keywords):
             return vuln_type

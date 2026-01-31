@@ -39,6 +39,59 @@ def _bool(value: bool | None) -> str | None:
     return "true" if value else "false"
 
 
+def _normalize_scan_id(value: Any) -> Optional[str]:
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return None if value < 0 else str(value)
+    if isinstance(value, float):
+        return None
+    try:
+        text = str(value).strip()
+    except Exception:
+        return None
+    if not text:
+        return None
+    if not text.isdigit():
+        return None
+    return str(int(text))
+
+
+def _ensure_scan_id(
+    value: Any,
+    *,
+    context: str,
+    response: Dict[str, Any],
+) -> str:
+    scan_id = _normalize_scan_id(value)
+    if not scan_id:
+        raise ZapError(
+            "ZAP returned invalid scan id for "
+            f"{context}: {value!r}. response={response}",
+            "tooling",
+        )
+    return scan_id
+
+
+def _validate_scan_id(scan_id: Any, *, context: str) -> str:
+    normalized = _normalize_scan_id(scan_id)
+    if not normalized:
+        raise ZapError(
+            f"Invalid scan id for {context}: {scan_id!r}",
+            "tooling",
+        )
+    return normalized
+
+
+def _extract_scan_id_value(response: Dict[str, Any]) -> Any:
+    for key in ("scan", "scanId", "scanid", "scan_id"):
+        if key in response:
+            return response.get(key)
+    return None
+
+
 class ZapDockerSession:
     def __init__(
         self,
@@ -47,6 +100,10 @@ class ZapDockerSession:
         timeout_seconds: int,
         request_timeout_seconds: Optional[int] = None,
         extra_hosts: Optional[list[str]] = None,
+        base_url: Optional[str] = None,
+        host_port: Optional[int] = None,
+        keepalive_seconds: Optional[int] = None,
+        host_header: Optional[str] = None,
     ) -> None:
         self.image = image
         self.api_key = api_key
@@ -55,9 +112,13 @@ class ZapDockerSession:
             30, max(5, timeout_seconds // 6)
         )
         self.extra_hosts = extra_hosts or []
+        self.base_url = base_url.strip() if base_url else None
+        self.host_port = host_port
+        self.keepalive_seconds = keepalive_seconds
+        self.host_header = host_header.strip() if host_header else None
+        self._managed_container = self.base_url is None
         self.container_id: Optional[str] = None
         self.container_name: Optional[str] = None
-        self.base_url: Optional[str] = None
         self._client: Optional[httpx.AsyncClient] = None
 
     async def __aenter__(self) -> "ZapDockerSession":
@@ -68,11 +129,34 @@ class ZapDockerSession:
         await self.stop()
 
     async def start(self) -> None:
+        if not self._managed_container:
+            headers: Dict[str, str] = {}
+            if self.host_header:
+                headers["Host"] = self.host_header
+            self._client = httpx.AsyncClient(
+                base_url=self.base_url,
+                timeout=self.request_timeout_seconds,
+                headers=headers or None,
+            )
+            logger.debug(
+                "ZAP client configured: base_url=%s host_header=%s timeout=%s",
+                self.base_url,
+                self.host_header or "none",
+                self.request_timeout_seconds,
+            )
+            try:
+                await self._wait_ready()
+            except Exception:
+                await self.stop()
+                raise
+            return
+
         if not is_docker_available():
             raise ZapError("Docker is not available for running ZAP.", "tooling")
 
-        port = _get_free_port()
+        port = self.host_port or _get_free_port()
         container_name = f"scanguard-zap-{uuid.uuid4().hex[:10]}"
+        logger.debug("Starting ZAP container %s on host port %s", container_name, port)
         cmd = [
             "docker",
             "run",
@@ -125,11 +209,24 @@ class ZapDockerSession:
         self.container_id = (result.stdout or "").strip()
         self.container_name = container_name
         self.base_url = f"http://127.0.0.1:{port}"
+        logger.debug(
+            "ZAP container started: id=%s name=%s base_url=%s",
+            self.container_id,
+            self.container_name,
+            self.base_url,
+        )
         # Force Host header to match the ZAP daemon bind port inside the container.
+        host_header = self.host_header or "127.0.0.1:8080"
         self._client = httpx.AsyncClient(
             base_url=self.base_url,
             timeout=self.request_timeout_seconds,
-            headers={"Host": "127.0.0.1:8080"},
+            headers={"Host": host_header},
+        )
+        logger.debug(
+            "ZAP client configured: base_url=%s host_header=%s timeout=%s",
+            self.base_url,
+            host_header,
+            self.request_timeout_seconds,
         )
 
         try:
@@ -142,18 +239,52 @@ class ZapDockerSession:
         if self._client:
             await self._client.aclose()
             self._client = None
+        if not self._managed_container:
+            return
         if not self.container_id:
             return
-        await asyncio.to_thread(
-            subprocess.run,
-            ["docker", "stop", self.container_id],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
+        container_id = self.container_id
+        container_name = self.container_name
+        if self.keepalive_seconds and self.keepalive_seconds > 0:
+            logger.info(
+                "Keeping ZAP container %s alive for %ss (base_url=%s)",
+                container_name or container_id,
+                self.keepalive_seconds,
+                self.base_url,
+            )
+
+            async def _delayed_stop() -> None:
+                await asyncio.sleep(self.keepalive_seconds)
+                logger.debug("Stopping ZAP container %s", container_id)
+                await asyncio.to_thread(
+                    subprocess.run,
+                    ["docker", "stop", container_id],
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+
+            try:
+                asyncio.get_running_loop().create_task(_delayed_stop())
+            except RuntimeError:
+                await asyncio.to_thread(
+                    subprocess.run,
+                    ["docker", "stop", container_id],
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+        else:
+            logger.debug("Stopping ZAP container %s", container_id)
+            await asyncio.to_thread(
+                subprocess.run,
+                ["docker", "stop", container_id],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
         self.container_id = None
         self.container_name = None
-        self.base_url = None
 
     async def _wait_ready(self) -> None:
         deadline = time.monotonic() + self.timeout_seconds
@@ -224,9 +355,12 @@ class ZapDockerSession:
         if subtree_only is not None:
             params["subtreeOnly"] = _bool(subtree_only)
         data = await self._action("spider", "scan", params)
-        scan_id = str(data.get("scan") or "")
-        if not scan_id:
-            raise ZapError("ZAP spider did not return scan id", "tooling")
+        scan_id = _ensure_scan_id(
+            _extract_scan_id_value(data),
+            context=f"spider scan (url={url}, params={params})",
+            response=data,
+        )
+        logger.debug("ZAP spider scan started: scan_id=%s url=%s", scan_id, url)
         return scan_id
 
     async def wait_spider(self, scan_id: str) -> None:
@@ -258,9 +392,17 @@ class ZapDockerSession:
             params["contextId"] = context_id
 
         data = await self._action("ascan", "scan", params)
-        scan_id = str(data.get("scan") or "")
-        if not scan_id:
-            raise ZapError("ZAP active scan did not return scan id", "tooling")
+        scan_id = _ensure_scan_id(
+            _extract_scan_id_value(data),
+            context=f"active scan (url={url or 'n/a'}, params={params})",
+            response=data,
+        )
+        logger.debug(
+            "ZAP active scan started: scan_id=%s url=%s method=%s",
+            scan_id,
+            url or "",
+            method or "",
+        )
         return scan_id
 
     async def wait_active(self, scan_id: str) -> None:
@@ -309,6 +451,7 @@ class ZapDockerSession:
         await self._action("replacer", "removeRule", {"description": description})
 
     async def _wait_status(self, component: str, scan_id: str) -> None:
+        scan_id = _validate_scan_id(scan_id, context=f"{component} status polling")
         deadline = time.monotonic() + self.timeout_seconds
         while time.monotonic() < deadline:
             data = await self._view(component, "status", {"scanId": scan_id})
@@ -317,6 +460,12 @@ class ZapDockerSession:
                 status = int(raw)
             except (TypeError, ValueError):
                 status = 0
+            logger.debug(
+                "ZAP %s status: scan_id=%s status=%s",
+                component,
+                scan_id,
+                status,
+            )
             if status >= 100:
                 return
             await asyncio.sleep(2.0)
