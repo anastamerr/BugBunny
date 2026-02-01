@@ -20,6 +20,12 @@ class DummyFetcher:
     async def clone(self, repo_url, branch="main", github_token=None):  # noqa: ANN001
         return self.repo_path, branch
 
+    async def get_commit_sha(self, repo_path):  # noqa: ANN001
+        return "deadbeef"
+
+    async def checkout_commit(self, repo_path, commit_sha):  # noqa: ANN001
+        return None
+
     def analyze_repo(self, repo_path):  # noqa: ANN001
         return ["python"], 1
 
@@ -411,3 +417,67 @@ async def test_dast_upgrades_unverified_before_zap(db_sessionmaker, monkeypatch)
 
     assert called["verify"] is True
     assert status_at_zap["value"] == "verified"
+
+
+@pytest.mark.asyncio
+async def test_scan_pipeline_upserts_project_memory(
+    db_sessionmaker, tmp_path, monkeypatch
+):
+    repo_path = tmp_path / "repo"
+    repo_path.mkdir()
+
+    monkeypatch.setattr(scan_pipeline, "RepoFetcher", lambda: DummyFetcher(repo_path))
+    monkeypatch.setattr(scan_pipeline, "SemgrepRunner", DummyRunner)
+    monkeypatch.setattr(scan_pipeline, "ContextExtractor", DummyExtractor)
+    monkeypatch.setattr(scan_pipeline, "AITriageEngine", DummyTriage)
+    monkeypatch.setattr(scan_pipeline, "FindingAggregator", DummyAggregator)
+    monkeypatch.setattr(scan_pipeline, "DASTRunner", DummyDAST)
+    monkeypatch.setattr(scan_pipeline, "DependencyScanner", DummyDependencyScanner)
+    monkeypatch.setattr(
+        scan_pipeline, "DependencyHealthScanner", DummyDependencyHealthScanner
+    )
+    monkeypatch.setattr(scan_pipeline, "sio", DummySio())
+    monkeypatch.setattr(scan_pipeline, "SessionLocal", lambda: db_sessionmaker())
+
+    class DummyProjectMemory:
+        def __init__(self):
+            self.called = False
+
+        def upsert_for_scan(self, pinecone, scan, findings):  # noqa: ANN001
+            self.called = True
+            return 1
+
+    tracker = DummyProjectMemory()
+    monkeypatch.setattr(
+        scan_pipeline,
+        "ProjectMemoryBuilder",
+        lambda: tracker,
+    )
+    monkeypatch.setattr(scan_pipeline, "_get_pinecone", lambda: object())
+
+    scan_id = uuid.uuid4()
+    user_id = uuid.uuid4()
+    session = db_sessionmaker()
+    session.add(
+        Scan(
+            id=scan_id,
+            user_id=user_id,
+            repo_url="https://example.com/repo",
+            branch="main",
+            scan_type="sast",
+            status="pending",
+            trigger="manual",
+        )
+    )
+    session.commit()
+    session.close()
+
+    await scan_pipeline.run_scan_pipeline(
+        scan_id=scan_id,
+        repo_url="https://example.com/repo",
+        branch="main",
+        scan_type="sast",
+        target_url=None,
+    )
+
+    assert tracker.called is True

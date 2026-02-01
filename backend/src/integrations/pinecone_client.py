@@ -60,8 +60,17 @@ class PineconeService:
                 spec=ServerlessSpec(cloud="aws", region="us-east-1"),
             )
 
+        if "scanguard-project-memory" not in existing:
+            self.pc.create_index(
+                name="scanguard-project-memory",
+                dimension=384,
+                metric="cosine",
+                spec=ServerlessSpec(cloud="aws", region="us-east-1"),
+            )
+
         self.bugs_index = self.pc.Index("scanguard-bugs")
         self.patterns_index = self.pc.Index("scanguard-patterns")
+        self.project_memory_index = self.pc.Index("scanguard-project-memory")
 
     def embed_text(self, text: str) -> List[float]:
         embedding = self.encoder.encode(text)
@@ -91,14 +100,23 @@ class PineconeService:
         return bug_id
 
     def find_similar_bugs(
-        self, title: str, description: str, top_k: int = 10
+        self,
+        title: str,
+        description: str,
+        top_k: int = 10,
+        metadata_filter: Optional[Dict[str, Any]] = None,
     ) -> List[Any]:
         text = f"{title} {description}"
         embedding = self.embed_text(text)
 
-        results = self.bugs_index.query(
-            vector=embedding, top_k=top_k, include_metadata=True
-        )
+        query_args: Dict[str, Any] = {
+            "vector": embedding,
+            "top_k": top_k,
+            "include_metadata": True,
+        }
+        if metadata_filter:
+            query_args["filter"] = metadata_filter
+        results = self.bugs_index.query(**query_args)
         return results.matches
 
     def upsert_pattern(
@@ -126,4 +144,46 @@ class PineconeService:
         results = self.patterns_index.query(
             vector=embedding, top_k=top_k, include_metadata=True
         )
+        return results.matches
+
+    def upsert_project_memory(
+        self,
+        doc_id: str,
+        text: str,
+        metadata: Dict[str, Any],
+        namespace: Optional[str] = None,
+    ) -> str:
+        embedding = self.embed_text(text)
+        args: Dict[str, Any] = {
+            "vectors": [
+                {
+                    "id": doc_id,
+                    "values": embedding,
+                    "metadata": metadata,
+                }
+            ]
+        }
+        if namespace:
+            args["namespace"] = namespace
+        self.project_memory_index.upsert(**args)
+        return doc_id
+
+    def find_project_memory(
+        self,
+        text: str,
+        top_k: int = 5,
+        metadata_filter: Optional[Dict[str, Any]] = None,
+        namespace: Optional[str] = None,
+    ) -> List[Any]:
+        embedding = self.embed_text(text)
+        query_args: Dict[str, Any] = {
+            "vector": embedding,
+            "top_k": top_k,
+            "include_metadata": True,
+        }
+        if metadata_filter:
+            query_args["filter"] = metadata_filter
+        if namespace:
+            query_args["namespace"] = namespace
+        results = self.project_memory_index.query(**query_args)
         return results.matches

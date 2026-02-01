@@ -27,6 +27,7 @@ from .dependency_health_scanner import DependencyHealthScanner
 from .dependency_scanner import DependencyScanner
 from .repo_fetcher import RepoFetcher
 from .semgrep_runner import SemgrepRunner
+from .project_memory import ProjectMemoryBuilder
 
 if TYPE_CHECKING:
     from ...integrations.pinecone_client import PineconeService
@@ -760,6 +761,22 @@ async def run_scan_pipeline(
                     "filtered_findings": filtered_findings,
                 },
             )
+
+        # RAG Project Memory - store scan summary and finding clusters
+        if pinecone is not None:
+            try:
+                scan_record = db.query(Scan).filter(Scan.id == scan_id).first()
+                if scan_record is not None:
+                    findings = (
+                        db.query(Finding)
+                        .filter(Finding.scan_id == scan_id)
+                        .all()
+                    )
+                    ProjectMemoryBuilder().upsert_for_scan(
+                        pinecone, scan_record, findings
+                    )
+            except Exception:
+                pass
 
         await sio.emit(
             "scan.completed",
