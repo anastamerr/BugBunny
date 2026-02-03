@@ -81,6 +81,10 @@ export const scansApi = {
     return data;
   },
 
+  deleteReport: async (scanId: string) => {
+    await api.delete(`/api/scans/${scanId}/report`);
+  },
+
   listFindings: async (params?: {
     scan_id?: string;
     status?: string;

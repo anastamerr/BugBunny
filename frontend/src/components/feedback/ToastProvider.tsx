@@ -31,6 +31,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
       {hasToasts ? (
         <div
           aria-live="polite"
+          role="status"
           className="fixed right-6 top-6 z-50 flex w-full max-w-sm flex-col gap-3"
         >
           {toasts.map((toast) => (

@@ -442,6 +442,7 @@ def delete_scan_report(
     if scan.report_url:
         delete_pdf(str(scan.id))
         scan.report_url = None
+        scan.report_generated_at = None
         db.add(scan)
         db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)

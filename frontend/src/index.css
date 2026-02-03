@@ -46,15 +46,15 @@ body {
   }
 
   .btn-primary {
-    @apply inline-flex items-center justify-center rounded-pill bg-neon-mint px-4 py-2 text-sm font-bold tracking-tight text-void hover:scale-105 active:scale-95 transition-transform duration-200 ease-fluid disabled:opacity-60 disabled:hover:scale-100 disabled:active:scale-100;
+    @apply inline-flex items-center justify-center rounded-pill bg-neon-mint px-4 py-2 text-sm font-bold tracking-tight text-void hover:scale-105 active:scale-95 transition-transform duration-200 ease-fluid disabled:opacity-60 disabled:hover:scale-100 disabled:active:scale-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neon-mint/60 focus-visible:ring-offset-2 focus-visible:ring-offset-void;
   }
 
   .btn-ghost {
-    @apply inline-flex items-center justify-center rounded-pill border border-white/10 bg-white/0 px-3 py-2 text-sm font-semibold tracking-tight text-white/80 hover:bg-white/5 hover:text-white transition-colors duration-200 ease-fluid;
+    @apply inline-flex items-center justify-center rounded-pill border border-white/10 bg-white/0 px-3 py-2 text-sm font-semibold tracking-tight text-white/80 hover:bg-white/5 hover:text-white transition-colors duration-200 ease-fluid focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neon-mint/40 focus-visible:ring-offset-2 focus-visible:ring-offset-void;
   }
 
   .badge {
-    @apply inline-flex items-center rounded-pill border border-white/10 bg-white/5 px-2 py-0.5 text-[11px] font-semibold text-white/70;
+    @apply inline-flex items-center rounded-pill border border-white/20 bg-white/10 px-2 py-0.5 text-[11px] font-semibold text-white/80;
   }
 
   .input {

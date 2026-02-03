@@ -1,13 +1,16 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useParams } from "react-router-dom";
+import { useVirtualizer } from "@tanstack/react-virtual";
 
 import { ApiError } from "../api/errors";
 import { scansApi } from "../api/scans";
 import { BackLink } from "../components/BackLink";
+import { ConfirmDialog } from "../components/ConfirmDialog";
 import { FindingCard } from "../components/FindingCard";
 import { groupFindingsForDisplay } from "../utils/dastGrouping";
 import type { Finding, Scan } from "../types";
+import { pushToast } from "../components/feedback/toastBus";
 
 function statusClass(status: Scan["status"]) {
   switch (status) {
@@ -30,6 +33,11 @@ function formatDate(value?: string) {
   if (!value) return "n/a";
   const dt = new Date(value);
   return Number.isNaN(dt.getTime()) ? "n/a" : dt.toLocaleString();
+}
+
+function formatClock(value?: Date | null) {
+  if (!value) return "n/a";
+  return value.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
 
 function formatReduction(scan: Scan) {
@@ -111,8 +119,11 @@ export default function ScanDetail() {
   >({});
   const [isDownloadingReport, setIsDownloadingReport] = useState(false);
   const [reportError, setReportError] = useState<string | null>(null);
+  const [reportStatusMessage, setReportStatusMessage] = useState<string | null>(null);
   const [pauseError, setPauseError] = useState<string | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
+  const [lastRefreshedAt, setLastRefreshedAt] = useState<Date | null>(null);
   const navigate = useNavigate();
 
   const {
@@ -129,6 +140,9 @@ export default function ScanDetail() {
       ["pending", "cloning", "scanning", "analyzing"].includes(query.state.data.status)
         ? 8000
         : false,
+    onSuccess: () => {
+      setLastRefreshedAt(new Date());
+    },
   });
 
   const {
@@ -147,6 +161,9 @@ export default function ScanDetail() {
       scan && ["pending", "cloning", "scanning", "analyzing"].includes(scan.status)
         ? 8000
         : false,
+    onSuccess: () => {
+      setLastRefreshedAt(new Date());
+    },
   });
 
   const updateFinding = useMutation({
@@ -240,7 +257,33 @@ export default function ScanDetail() {
     },
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["scans"] });
+      pushToast({
+        title: "Scan deleted",
+        message: "The scan and its findings were removed.",
+        tone: "success",
+        duration: 4000,
+      });
       navigate("/scans");
+    },
+  });
+
+  const regenerateReport = useMutation({
+    mutationFn: async () => {
+      if (!scan) throw new Error("Missing scan details.");
+      await scansApi.deleteReport(scan.id);
+    },
+    onMutate: () => {
+      setReportError(null);
+      setReportStatusMessage(null);
+    },
+    onError: (err) => {
+      setReportError(
+        err instanceof Error ? err.message : "Failed to regenerate report.",
+      );
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["scans", id] });
+      setReportStatusMessage("Report was cleared. Generating a new report now.");
     },
   });
 
@@ -248,6 +291,7 @@ export default function ScanDetail() {
     if (!scan) return;
     setIsDownloadingReport(true);
     setReportError(null);
+    setReportStatusMessage(null);
     try {
       const blob = await scansApi.downloadReport(scan.id);
       const url = window.URL.createObjectURL(blob);
@@ -259,12 +303,35 @@ export default function ScanDetail() {
       link.remove();
       window.URL.revokeObjectURL(url);
     } catch (err) {
+      if (err instanceof ApiError && err.status === 409) {
+        setReportStatusMessage("Report missing from storage. Regenerate to restore.");
+      }
       setReportError(
         err instanceof Error ? err.message : "Failed to generate PDF report."
       );
     } finally {
       setIsDownloadingReport(false);
     }
+  };
+
+  const handleRegenerateReport = async () => {
+    try {
+      await regenerateReport.mutateAsync();
+      await handleDownloadReport();
+      pushToast({
+        title: "Report regenerated",
+        message: "A new PDF report has been generated.",
+        tone: "success",
+        duration: 4000,
+      });
+    } catch {
+      // Errors handled in mutation / download handler.
+    }
+  };
+
+  const handleRefresh = async () => {
+    await Promise.all([refetchScan(), refetchFindings()]);
+    setLastRefreshedAt(new Date());
   };
 
   const stats = useMemo(() => {
@@ -340,17 +407,50 @@ export default function ScanDetail() {
   const findingsSummary = hasGroupedDast
     ? `${groupedFindingsCount} grouped findings from ${rawDastCount} raw alerts`
     : `${groupedFindingsCount} findings`;
-  const reportReady = Boolean(scan?.report_generated_at || scan?.report_url);
+  const enableVirtualList = groupedFindingsCount > 40;
+  const listParentRef = useRef<HTMLDivElement | null>(null);
+  const rowVirtualizer = useVirtualizer({
+    count: groupedFindingsCount,
+    getScrollElement: () => listParentRef.current,
+    estimateSize: () => 320,
+    overscan: 6,
+  });
+
+  const renderFindingCard = (finding: Finding) => (
+    <FindingCard
+      key={finding.id}
+      finding={finding}
+      isUpdating={updateFinding.isPending && updatingId === finding.id}
+      isAutoFixing={autofixFinding.isPending && autoFixing?.id === finding.id}
+      autoFixAction={autoFixing?.id === finding.id ? autoFixing.action : null}
+      autoFixError={autoFixErrors[finding.id] ?? null}
+      onUpdateStatus={(findingId, status) =>
+        updateFinding.mutate({ id: findingId, status })
+      }
+      onAutoFix={(findingId, options) =>
+        autofixFinding.mutate({
+          id: findingId,
+          createPr: options.createPr,
+          regenerate: options.regenerate,
+        })
+      }
+    />
+  );
+  const reportMissing = Boolean(scan?.report_generated_at && !scan?.report_url);
+  const reportReady = Boolean(scan?.report_url);
   const reportStatus =
     scan?.status === "completed"
-      ? reportReady
-        ? `Report ready (generated ${formatDate(scan.report_generated_at)})`
-        : "Report can be generated after review"
+      ? reportMissing
+        ? "Report missing from storage. Regenerate to restore."
+        : reportReady
+          ? `Report ready (generated ${formatDate(scan.report_generated_at)})`
+          : "Report can be generated after review"
       : "Report available after scan completes";
   const isActiveScan = Boolean(
     scan &&
       ["pending", "cloning", "scanning", "analyzing"].includes(scan.status),
   );
+  const canDownloadReport = scan?.status === "completed" && !reportMissing;
 
   if (!id) {
     return (
@@ -555,6 +655,14 @@ export default function ScanDetail() {
             <button
               type="button"
               className="btn-ghost"
+              onClick={handleRefresh}
+              disabled={isDownloadingReport}
+            >
+              Refresh
+            </button>
+            <button
+              type="button"
+              className="btn-ghost"
               onClick={() =>
                 pauseScan.mutate(isPaused ? "resume" : "pause")
               }
@@ -580,12 +688,7 @@ export default function ScanDetail() {
               className="btn-ghost text-rose-300 hover:text-rose-200"
               onClick={() => {
                 if (!canDelete || deleteScan.isPending) return;
-                const confirmed = window.confirm(
-                  "Delete this scan and all its findings? This cannot be undone.",
-                );
-                if (confirmed) {
-                  deleteScan.mutate();
-                }
+                setConfirmDeleteOpen(true);
               }}
               disabled={!canDelete || deleteScan.isPending}
               title={
@@ -600,8 +703,14 @@ export default function ScanDetail() {
               type="button"
               className="inline-flex items-center gap-2 rounded-pill border border-neon-mint/30 bg-neon-mint/10 px-4 py-2 text-sm font-semibold text-neon-mint transition-all duration-200 hover:border-neon-mint/50 hover:bg-neon-mint/20 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:border-neon-mint/30 disabled:hover:bg-neon-mint/10"
               onClick={handleDownloadReport}
-              disabled={scan.status !== "completed" || isDownloadingReport}
-              title={scan.status !== "completed" ? "Report available after scan completes" : "Download PDF report"}
+              disabled={!canDownloadReport || isDownloadingReport}
+              title={
+                scan.status !== "completed"
+                  ? "Report available after scan completes"
+                  : reportMissing
+                    ? "Report missing. Regenerate to restore."
+                    : "Download PDF report"
+              }
             >
               {isDownloadingReport ? (
                 <svg
@@ -642,6 +751,16 @@ export default function ScanDetail() {
               )}
               {isDownloadingReport ? "Generating..." : "PDF Report"}
             </button>
+            {reportMissing ? (
+              <button
+                type="button"
+                className="btn-ghost"
+                onClick={handleRegenerateReport}
+                disabled={regenerateReport.isPending || isDownloadingReport}
+              >
+                {regenerateReport.isPending ? "Regenerating..." : "Regenerate"}
+              </button>
+            ) : null}
             {scan.pr_url ? (
               <a
                 href={scan.pr_url}
@@ -667,7 +786,11 @@ export default function ScanDetail() {
         </div>
         <div className="mt-3 text-xs text-white/60">
           {reportStatus}
+          {reportStatusMessage ? ` ${reportStatusMessage}` : ""}
           {isActiveScan ? " - Auto-refreshing every 8s." : ""}
+        </div>
+        <div className="mt-1 text-xs text-white/40">
+          Last refreshed {formatClock(lastRefreshedAt)}
         </div>
         {scan.error_message ? (
           <div className="mt-4 text-sm text-rose-200">{scan.error_message}</div>
@@ -870,40 +993,73 @@ export default function ScanDetail() {
         </div>
       ) : null}
 
-      <div className="space-y-4">
-        {groupedFindings.map((finding: Finding) => (
-          <FindingCard
-            key={finding.id}
-            finding={finding}
-            isUpdating={updateFinding.isPending && updatingId === finding.id}
-            isAutoFixing={
-              autofixFinding.isPending && autoFixing?.id === finding.id
-            }
-            autoFixAction={
-              autoFixing?.id === finding.id ? autoFixing.action : null
-            }
-            autoFixError={autoFixErrors[finding.id] ?? null}
-            onUpdateStatus={(findingId, status) =>
-              updateFinding.mutate({ id: findingId, status })
-            }
-            onAutoFix={(findingId, options) =>
-              autofixFinding.mutate({
-                id: findingId,
-                createPr: options.createPr,
-                regenerate: options.regenerate,
-              })
-            }
-          />
-        ))}
-
-        {!findingsLoading && !findingsError && groupedFindingsCount === 0 ? (
-          <div className="surface-solid p-6 text-sm text-white/60">
-            {scan.status === "completed"
-              ? "No findings for this scan."
-              : "Scan is still running. Findings will appear here once analysis completes."}
+      {enableVirtualList ? (
+        <div className="surface-solid max-h-[70vh] overflow-auto p-2" ref={listParentRef}>
+          <div
+            style={{
+              height: `${rowVirtualizer.getTotalSize()}px`,
+              position: "relative",
+            }}
+          >
+            {rowVirtualizer.getVirtualItems().map((virtualRow) => {
+              const finding = groupedFindings[virtualRow.index];
+              return (
+                <div
+                  key={finding.id}
+                  ref={rowVirtualizer.measureElement}
+                  data-index={virtualRow.index}
+                  style={{
+                    position: "absolute",
+                    top: 0,
+                    left: 0,
+                    width: "100%",
+                    transform: `translateY(${virtualRow.start}px)`,
+                  }}
+                >
+                  <div className="p-3">{renderFindingCard(finding)}</div>
+                </div>
+              );
+            })}
           </div>
-        ) : null}
-      </div>
+        </div>
+      ) : (
+        <div className="space-y-4">
+          {groupedFindings.map((finding) => renderFindingCard(finding))}
+
+          {!findingsLoading && !findingsError && groupedFindingsCount === 0 ? (
+            <div className="surface-solid p-6 text-sm text-white/60">
+              {scan.status === "completed"
+                ? "No findings for this scan."
+                : "Scan is still running. Findings will appear here once analysis completes."}
+            </div>
+          ) : null}
+        </div>
+      )}
+
+      <ConfirmDialog
+        open={confirmDeleteOpen}
+        title="Delete this scan?"
+        description="This will permanently remove the scan and all associated findings."
+        confirmLabel={deleteScan.isPending ? "Deleting..." : "Delete scan"}
+        cancelLabel="Cancel"
+        tone="danger"
+        confirmDisabled={deleteScan.isPending}
+        onCancel={() => setConfirmDeleteOpen(false)}
+        onConfirm={() => {
+          setConfirmDeleteOpen(false);
+          deleteScan.mutate();
+        }}
+      >
+        <div className="rounded-card border border-white/10 bg-surface p-4 text-xs text-white/70">
+          <div className="font-semibold text-white">Scan summary</div>
+          <div className="mt-2 space-y-1">
+            <div>Target: {headline}</div>
+            <div>Status: {scan.status}</div>
+            <div>Total findings: {stats.total}</div>
+            <div>Filtered issues: {stats.filtered}</div>
+          </div>
+        </div>
+      </ConfirmDialog>
     </div>
   );
 }

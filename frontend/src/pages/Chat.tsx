@@ -606,7 +606,9 @@ export default function Chat() {
           ))}
         </div>
         {isSending ? (
-          <div className="mt-4 text-xs text-white/50">Streaming response...</div>
+          <div className="mt-4 text-xs text-white/50" role="status" aria-live="polite">
+            Streaming response...
+          </div>
         ) : null}
       </div>
 

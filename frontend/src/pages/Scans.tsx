@@ -7,7 +7,9 @@ import { demoApi } from "../api/demo";
 import { repositoriesApi } from "../api/repositories";
 import { ApiError } from "../api/errors";
 import { scansApi } from "../api/scans";
+import { ConfirmDialog } from "../components/ConfirmDialog";
 import type { Scan } from "../types";
+import { pushToast } from "../components/feedback/toastBus";
 
 // ============================================================================
 // Constants & Types
@@ -95,6 +97,11 @@ function formatDate(value?: string): string {
   if (diffDays < 7) return `${diffDays}d ago`;
 
   return dt.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+
+function formatClock(value?: Date | null): string {
+  if (!value) return "n/a";
+  return value.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
 
 function shortSha(sha?: string | null): string | null {
@@ -398,12 +405,7 @@ function ScanCard({
                 className="btn-ghost text-rose-300 hover:text-rose-200"
                 onClick={() => {
                   if (!canDelete || isDeleting) return;
-                  const confirmed = window.confirm(
-                    "Delete this scan and all its findings? This cannot be undone.",
-                  );
-                  if (confirmed) {
-                    onDelete(scan.id);
-                  }
+                  onDelete(scan.id);
                 }}
                 disabled={!canDelete || isDeleting}
                 title={
@@ -840,10 +842,12 @@ export default function Scans() {
   const [statusFilter, setStatusFilter] = useState<Scan["status"] | "all">("all");
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [confirmScan, setConfirmScan] = useState<Scan | null>(null);
+  const [lastRefreshedAt, setLastRefreshedAt] = useState<Date | null>(null);
   const newScanRef = useRef<HTMLDivElement | null>(null);
 
   // Data Fetching
-  const { data, isLoading, error } = useQuery({
+  const { data, isLoading, error, refetch, isFetching } = useQuery({
     queryKey: ["scans"],
     queryFn: () => scansApi.list(),
     refetchInterval: (query) => {
@@ -853,6 +857,9 @@ export default function Scans() {
       )
         ? 5000
         : false;
+    },
+    onSuccess: () => {
+      setLastRefreshedAt(new Date());
     },
   });
   const isAuthError = error instanceof ApiError && error.status === 401;
@@ -964,6 +971,15 @@ export default function Scans() {
       setDeleteError(
         err instanceof Error ? err.message : "Failed to delete scan.",
       );
+    },
+    onSuccess: () => {
+      pushToast({
+        title: "Scan deleted",
+        message: "The scan and findings were removed.",
+        tone: "success",
+        duration: 4000,
+      });
+      setConfirmScan(null);
     },
     onSettled: async () => {
       setDeletingId(null);
@@ -1190,8 +1206,19 @@ export default function Scans() {
               <option value="failed">Failed</option>
             </select>
           </div>
-          <div className="text-xs text-white/40">
-            Showing {scans.length} scan{scans.length !== 1 ? "s" : ""}
+          <div className="flex flex-wrap items-center gap-3 text-xs text-white/40">
+            <span>
+              Showing {scans.length} scan{scans.length !== 1 ? "s" : ""}
+            </span>
+            <span>Last refreshed {formatClock(lastRefreshedAt)}</span>
+            <button
+              type="button"
+              className="btn-ghost text-xs"
+              onClick={() => refetch()}
+              disabled={isFetching}
+            >
+              {isFetching ? "Refreshing..." : "Refresh"}
+            </button>
           </div>
         </div>
       )}
@@ -1224,7 +1251,7 @@ export default function Scans() {
             <ScanCard
               key={scan.id}
               scan={scan}
-              onDelete={(scanId) => deleteScan.mutate(scanId)}
+              onDelete={() => setConfirmScan(scan)}
               isDeleting={deleteScan.isPending && deletingId === scan.id}
             />
           ))}
@@ -1240,6 +1267,34 @@ export default function Scans() {
           }}
         />
       )}
+
+      <ConfirmDialog
+        open={Boolean(confirmScan)}
+        title="Delete this scan?"
+        description="This will permanently remove the scan and its findings."
+        confirmLabel={deleteScan.isPending ? "Deleting..." : "Delete scan"}
+        cancelLabel="Cancel"
+        tone="danger"
+        confirmDisabled={deleteScan.isPending}
+        onCancel={() => setConfirmScan(null)}
+        onConfirm={() => {
+          if (!confirmScan) return;
+          setConfirmScan(null);
+          deleteScan.mutate(confirmScan.id);
+        }}
+      >
+        {confirmScan ? (
+          <div className="rounded-card border border-white/10 bg-surface p-4 text-xs text-white/70">
+            <div className="font-semibold text-white">Scan summary</div>
+            <div className="mt-2 space-y-1">
+              <div>Target: {confirmScan.repo_url || confirmScan.target_url || "DAST scan"}</div>
+              <div>Status: {confirmScan.status}</div>
+              <div>Total findings: {confirmScan.total_findings}</div>
+              <div>Filtered issues: {confirmScan.filtered_findings}</div>
+            </div>
+          </div>
+        ) : null}
+      </ConfirmDialog>
     </div>
   );
 }
