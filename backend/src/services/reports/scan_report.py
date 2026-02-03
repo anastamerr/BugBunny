@@ -105,7 +105,7 @@ def build_scan_report_pdf(
         rightMargin=40,
         topMargin=50,
         bottomMargin=40,
-        title="ScanGuard AI Report",
+        title="BugBunny Report",
     )
 
     styles = _build_styles()
@@ -264,7 +264,7 @@ def _build_header(
     blocks = []
 
     # Title and subtitle
-    blocks.append(Paragraph("ScanGuard AI", styles["ReportTitle"]))
+    blocks.append(Paragraph("BugBunny", styles["ReportTitle"]))
     blocks.append(
         Paragraph(
             f"Security Scan Report &bull; Generated {_format_datetime(generated_at)}",
@@ -809,7 +809,7 @@ def _add_page_elements(canvas, doc, generated_at: datetime, is_first: bool = Tru
     if not is_first:
         canvas.setFont("Helvetica-Bold", 10)
         canvas.setFillColor(COLORS["text_secondary"])
-        canvas.drawString(40, doc.pagesize[1] - 30, "ScanGuard AI Report")
+        canvas.drawString(40, doc.pagesize[1] - 30, "BugBunny Report")
 
     # Footer with page number and branding
     canvas.setFont("Helvetica", 8)

@@ -1,4 +1,4 @@
-# ScanGuard AI Setup (Supabase + GitHub + ngrok)
+# BugBunny Setup (Supabase + GitHub + ngrok)
 
 ## 1) Backend env (`backend/.env`)
 

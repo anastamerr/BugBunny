@@ -112,7 +112,7 @@ export default function Dashboard() {
 
       <div className="surface-solid p-5">
         <div className="text-xs font-semibold uppercase tracking-[0.2em] text-white/60">
-          Why ScanGuard AI
+          Why BugBunny
         </div>
         <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-3">
           <div className="rounded-card border border-white/10 bg-void p-4">

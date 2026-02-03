@@ -459,7 +459,7 @@ export default function Chat() {
       <div className="surface-solid p-6">
         <h1 className="text-2xl font-extrabold tracking-tight text-white">Chat</h1>
         <p className="mt-1 text-sm text-white/60">
-          Ask ScanGuard AI about scans, findings, and triage recommendations. The
+          Ask BugBunny about scans, findings, and triage recommendations. The
           assistant is grounded in your latest platform data.
         </p>
         {showBaseContext || showManualContext ? (

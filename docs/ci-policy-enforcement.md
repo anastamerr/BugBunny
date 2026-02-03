@@ -1,6 +1,6 @@
 # CI/CD Policy Enforcement
 
-This guide shows how to integrate ScanGuard AI scans into your CI/CD pipeline with policy enforcement that fails builds when vulnerabilities exceed severity thresholds.
+This guide shows how to integrate BugBunny scans into your CI/CD pipeline with policy enforcement that fails builds when vulnerabilities exceed severity thresholds.
 
 ## Overview
 

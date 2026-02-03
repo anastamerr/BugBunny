@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# ScanGuard AI - Local Development Mode Helper
+# BugBunny - Local Development Mode Helper
 # ⚠️ WARNING: This script configures development-only settings that DISABLE AUTHENTICATION.
 # NEVER use these settings in production, staging, or any publicly accessible environment.
 
 echo "========================================="
-echo "ScanGuard AI - Dev Mode Setup"
+echo "BugBunny - Dev Mode Setup"
 echo "========================================="
 echo ""
 echo "⚠️  WARNING: This configures DEV-ONLY settings that DISABLE authentication."

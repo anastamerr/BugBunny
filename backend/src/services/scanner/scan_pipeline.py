@@ -425,9 +425,34 @@ async def run_scan_pipeline(
                     "dast.targeted",
                     "Skipping targeted DAST for remote target",
                 )
+            elif scan_type == "both":
+                logger.info("Skipping targeted DAST - no SAST findings to verify")
 
-            # Blind DAST disabled: targeted DAST already verifies SAST findings.
-            logger.info("Skipping blind DAST - targeted DAST already ran")
+            # For DAST-only scans, run a full (blind) DAST crawl.
+            # For combined scans, prefer targeted DAST only.
+            if scan_type == "dast":
+                if not dast_runner.is_available():
+                    dast_error = "DAST scan unavailable (ZAP/Docker is not running)."
+                else:
+                    await _report_phase(
+                        "dast.active_scan",
+                        "Running full DAST scan",
+                    )
+                    try:
+                        dast_findings = await dast_runner.scan(
+                            target_url,
+                            auth_headers=scan.dast_auth_headers if scan else None,
+                            cookies=scan.dast_cookies if scan else None,
+                            progress_cb=_report_phase,
+                        )
+                        if dast_runner.last_error:
+                            dast_error = f"DAST scan error: {dast_runner.last_error}"
+                    except Exception as exc:
+                        dast_error = f"DAST scan error: {exc}"
+            else:
+                logger.info(
+                    "Skipping blind DAST (combined scan relies on targeted DAST)."
+                )
 
             _update_scan(
                 db,

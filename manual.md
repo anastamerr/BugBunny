@@ -1,4 +1,4 @@
-# ScanGuard AI Manual (Runbook)
+# BugBunny Manual (Runbook)
 
 This file explains how to bring up the **backend + frontend** together for local development and for a demo of context-aware Semgrep scans.
 

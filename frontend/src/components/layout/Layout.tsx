@@ -51,7 +51,7 @@ export function Layout() {
               <div className="flex items-center gap-2">
                 <span className="h-2.5 w-2.5 rounded-pill bg-neon-mint shadow-[0_0_28px_rgba(0,215,104,0.35)]" />
                 <div className="text-xs font-semibold uppercase tracking-[0.2em] text-white/60">
-                  ScanGuard AI
+                  BugBunny
                 </div>
               </div>
               <div className="mt-2 text-xl font-extrabold tracking-tight">
@@ -63,7 +63,7 @@ export function Layout() {
             </div>
             <img
               src="/icon.png"
-              alt="ScanGuard AI logo"
+              alt="BugBunny logo"
               className="h-10 w-10 rounded-card border border-white/10 bg-white/5 p-1.5"
             />
           </div>

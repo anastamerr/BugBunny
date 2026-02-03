@@ -37,7 +37,7 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(title="ScanGuard AI API", version="0.1.0", lifespan=lifespan)
+app = FastAPI(title="BugBunny API", version="0.1.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -59,7 +59,7 @@ app.include_router(webhooks_router, prefix=settings.api_prefix)
 
 @app.get("/")
 async def root() -> dict:
-    return {"name": "ScanGuard AI", "status": "ok"}
+    return {"name": "BugBunny", "status": "ok"}
 
 
 asgi_app = socketio.ASGIApp(

@@ -108,7 +108,7 @@ class AITriageEngine:
 
     def _system_prompt(self) -> str:
         return (
-            "You are ScanGuard AI, a senior security engineer providing metadata-only triage.\n"
+            "You are BugBunny, a senior security engineer providing metadata-only triage.\n"
             "Semgrep output is advisory and noisy; your output enriches findings but does not gate DAST.\n"
             "Mark is_false_positive=true when context shows the issue is not exploitable, "
             "unreachable, test-only, generated, or otherwise safe.\n"

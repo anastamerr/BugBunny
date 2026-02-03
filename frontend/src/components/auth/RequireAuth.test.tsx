@@ -1,8 +1,6 @@
-import { render, screen } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
-import { describe, it, expect, vi, beforeEach } from "vitest";
-
-import { RequireAuth } from "./RequireAuth";
+import { cleanup, render, screen } from "@testing-library/react";
+import { MemoryRouter, Route, Routes } from "react-router-dom";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 // Mock the useAuth hook
 vi.mock("../../hooks/useAuth", () => ({
@@ -12,27 +10,51 @@ vi.mock("../../hooks/useAuth", () => ({
 // Get the mocked module
 import { useAuth } from "../../hooks/useAuth";
 const mockUseAuth = vi.mocked(useAuth);
+let RequireAuth: typeof import("./RequireAuth").RequireAuth;
+
+const baseAuth = {
+  session: null,
+  user: null,
+  loading: false,
+  signIn: vi.fn(async () => null),
+  signUp: vi.fn(async () => null),
+  signOut: vi.fn(async () => undefined),
+};
 
 describe("RequireAuth", () => {
+  beforeAll(async () => {
+    ({ RequireAuth } = await import("./RequireAuth"));
+  });
+
   beforeEach(() => {
-    vi.clearAllMocks();
-    // Clear env vars
-    delete import.meta.env.VITE_DEV_AUTH_BYPASS;
+    vi.restoreAllMocks();
+    import.meta.env.VITE_DEV_AUTH_BYPASS = "false";
     delete import.meta.env.VITE_DEV_BEARER_TOKEN;
+  });
+
+  afterEach(() => {
+    cleanup();
   });
 
   it("shows loading state when auth is loading", () => {
     mockUseAuth.mockReturnValue({
-      user: null,
+      ...baseAuth,
       loading: true,
-      supabase: null as any,
     });
 
     render(
-      <MemoryRouter>
-        <RequireAuth>
-          <div>Protected Content</div>
-        </RequireAuth>
+      <MemoryRouter initialEntries={["/scans"]}>
+        <Routes>
+          <Route
+            path="/scans"
+            element={
+              <RequireAuth>
+                <div>Protected Content</div>
+              </RequireAuth>
+            }
+          />
+          <Route path="/login" element={<div>Login</div>} />
+        </Routes>
       </MemoryRouter>
     );
 
@@ -42,16 +64,22 @@ describe("RequireAuth", () => {
 
   it("redirects to login when user is null and no dev bypass", () => {
     mockUseAuth.mockReturnValue({
-      user: null,
-      loading: false,
-      supabase: null as any,
+      ...baseAuth,
     });
 
-    const { container } = render(
+    render(
       <MemoryRouter initialEntries={["/scans"]}>
-        <RequireAuth>
-          <div>Protected Content</div>
-        </RequireAuth>
+        <Routes>
+          <Route
+            path="/scans"
+            element={
+              <RequireAuth>
+                <div>Protected Content</div>
+              </RequireAuth>
+            }
+          />
+          <Route path="/login" element={<div>Login</div>} />
+        </Routes>
       </MemoryRouter>
     );
 
@@ -61,16 +89,23 @@ describe("RequireAuth", () => {
 
   it("renders children when user is authenticated", () => {
     mockUseAuth.mockReturnValue({
+      ...baseAuth,
       user: { id: "user-123", email: "test@example.com" } as any,
-      loading: false,
-      supabase: null as any,
     });
 
     render(
-      <MemoryRouter>
-        <RequireAuth>
-          <div>Protected Content</div>
-        </RequireAuth>
+      <MemoryRouter initialEntries={["/scans"]}>
+        <Routes>
+          <Route
+            path="/scans"
+            element={
+              <RequireAuth>
+                <div>Protected Content</div>
+              </RequireAuth>
+            }
+          />
+          <Route path="/login" element={<div>Login</div>} />
+        </Routes>
       </MemoryRouter>
     );
 
@@ -79,19 +114,24 @@ describe("RequireAuth", () => {
 
   it("bypasses auth when VITE_DEV_AUTH_BYPASS is true", () => {
     mockUseAuth.mockReturnValue({
-      user: null,
-      loading: false,
-      supabase: null as any,
+      ...baseAuth,
     });
 
-    // Set dev bypass env var
     import.meta.env.VITE_DEV_AUTH_BYPASS = "true";
 
     render(
-      <MemoryRouter>
-        <RequireAuth>
-          <div>Protected Content</div>
-        </RequireAuth>
+      <MemoryRouter initialEntries={["/scans"]}>
+        <Routes>
+          <Route
+            path="/scans"
+            element={
+              <RequireAuth>
+                <div>Protected Content</div>
+              </RequireAuth>
+            }
+          />
+          <Route path="/login" element={<div>Login</div>} />
+        </Routes>
       </MemoryRouter>
     );
 
@@ -101,19 +141,24 @@ describe("RequireAuth", () => {
 
   it("bypasses auth when VITE_DEV_BEARER_TOKEN is set", () => {
     mockUseAuth.mockReturnValue({
-      user: null,
-      loading: false,
-      supabase: null as any,
+      ...baseAuth,
     });
 
-    // Set dev bearer token env var
     import.meta.env.VITE_DEV_BEARER_TOKEN = "some-token";
 
     render(
-      <MemoryRouter>
-        <RequireAuth>
-          <div>Protected Content</div>
-        </RequireAuth>
+      <MemoryRouter initialEntries={["/scans"]}>
+        <Routes>
+          <Route
+            path="/scans"
+            element={
+              <RequireAuth>
+                <div>Protected Content</div>
+              </RequireAuth>
+            }
+          />
+          <Route path="/login" element={<div>Login</div>} />
+        </Routes>
       </MemoryRouter>
     );
 
@@ -123,19 +168,24 @@ describe("RequireAuth", () => {
 
   it("handles VITE_DEV_AUTH_BYPASS case insensitively", () => {
     mockUseAuth.mockReturnValue({
-      user: null,
-      loading: false,
-      supabase: null as any,
+      ...baseAuth,
     });
 
-    // Set dev bypass env var with uppercase
     import.meta.env.VITE_DEV_AUTH_BYPASS = "TRUE";
 
     render(
-      <MemoryRouter>
-        <RequireAuth>
-          <div>Protected Content</div>
-        </RequireAuth>
+      <MemoryRouter initialEntries={["/scans"]}>
+        <Routes>
+          <Route
+            path="/scans"
+            element={
+              <RequireAuth>
+                <div>Protected Content</div>
+              </RequireAuth>
+            }
+          />
+          <Route path="/login" element={<div>Login</div>} />
+        </Routes>
       </MemoryRouter>
     );
 
@@ -144,19 +194,24 @@ describe("RequireAuth", () => {
 
   it("does not bypass auth when VITE_DEV_AUTH_BYPASS is false", () => {
     mockUseAuth.mockReturnValue({
-      user: null,
-      loading: false,
-      supabase: null as any,
+      ...baseAuth,
     });
 
-    // Explicitly set to false
     import.meta.env.VITE_DEV_AUTH_BYPASS = "false";
 
     render(
-      <MemoryRouter>
-        <RequireAuth>
-          <div>Protected Content</div>
-        </RequireAuth>
+      <MemoryRouter initialEntries={["/scans"]}>
+        <Routes>
+          <Route
+            path="/scans"
+            element={
+              <RequireAuth>
+                <div>Protected Content</div>
+              </RequireAuth>
+            }
+          />
+          <Route path="/login" element={<div>Login</div>} />
+        </Routes>
       </MemoryRouter>
     );
 

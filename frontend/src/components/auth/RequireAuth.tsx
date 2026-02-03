@@ -3,12 +3,17 @@ import { Navigate, useLocation } from "react-router-dom";
 
 import { useAuth } from "../../hooks/useAuth";
 
+export function isDevBypassEnabled() {
+  return (
+    String(import.meta.env.VITE_DEV_AUTH_BYPASS).toLowerCase() === "true" ||
+    Boolean(import.meta.env.VITE_DEV_BEARER_TOKEN)
+  );
+}
+
 export function RequireAuth({ children }: { children: ReactNode }) {
   const { user, loading } = useAuth();
   const location = useLocation();
-  const devBypass =
-    String(import.meta.env.VITE_DEV_AUTH_BYPASS).toLowerCase() === "true" ||
-    Boolean(import.meta.env.VITE_DEV_BEARER_TOKEN);
+  const devBypass = isDevBypassEnabled();
 
   if (loading) {
     return (

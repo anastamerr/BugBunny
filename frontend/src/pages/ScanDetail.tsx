@@ -174,7 +174,10 @@ export default function ScanDetail() {
     },
     onSuccess: (data) => {
       if (data.error) {
-        setAutoFixErrors((prev) => ({ ...prev, [data.finding.id]: data.error }));
+        setAutoFixErrors((prev) => ({
+          ...prev,
+          [data.finding.id]: data.error ?? null,
+        }));
       }
     },
     onError: (err, payload) => {

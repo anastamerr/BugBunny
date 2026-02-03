@@ -1,6 +1,6 @@
-# ScanGuard AI
+# BugBunny
 
-ScanGuard AI is a context-aware static analysis platform that runs Semgrep and uses LLM triage to reduce false positives, adjust severity, and prioritize exploitable findings. It combines a FastAPI backend, a React dashboard, and optional dynamic and dependency scanning to provide actionable security insights.
+BugBunny is a context-aware static analysis platform that runs Semgrep and uses LLM triage to reduce false positives, adjust severity, and prioritize exploitable findings. It combines a FastAPI backend, a React dashboard, and optional dynamic and dependency scanning to provide actionable security insights.
 
 ## Highlights
 - Semgrep-based SAST with language detection (Python, JS/TS, Go, Java) and local Semgrep configs.

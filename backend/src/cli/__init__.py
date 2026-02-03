@@ -1,1 +1,1 @@
-"""CLI commands for ScanGuard AI."""
+"""CLI commands for BugBunny."""

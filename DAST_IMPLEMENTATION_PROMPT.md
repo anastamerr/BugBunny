@@ -1,4 +1,4 @@
-# Task: Implement Targeted DAST Integration for ScanGuard AI
+# Task: Implement Targeted DAST Integration for BugBunny
 
 ## Mission Statement
 Implement a DAST (Dynamic Application Security Testing) system that **attacks specific vulnerabilities found by SAST**, rather than running blind scans. The key requirement from the stakeholder meeting is: "whenever SAST gets results, DAST attacks those specific points and follows up on them."

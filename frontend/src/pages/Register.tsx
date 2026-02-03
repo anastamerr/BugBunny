@@ -51,12 +51,12 @@ export default function Register() {
             <div className="flex items-center gap-4">
               <img
                 src="/icon.png"
-                alt="ScanGuard AI logo"
+                alt="BugBunny logo"
                 className="h-12 w-12 rounded-card border border-white/10 bg-white/5 p-2"
               />
               <div>
                 <div className="text-xs font-semibold uppercase tracking-[0.25em] text-white/60">
-                  ScanGuard AI
+                  BugBunny
                 </div>
                 <h1 className="mt-1 text-2xl font-extrabold tracking-tight text-white">
                   Create your account
