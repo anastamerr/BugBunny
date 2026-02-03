@@ -1,7 +1,8 @@
 import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
 
-import { subscribeToToasts, ToastItem } from "./toastBus";
+import { subscribeToToasts } from "./toastBus";
+import type { ToastItem } from "./toastBus";
 
 const toneClasses: Record<ToastItem["tone"], string> = {
   info: "border-sky-400/40 bg-sky-400/10 text-sky-100",
