@@ -1,7 +1,8 @@
 import axios from "axios";
 
 import { supabase } from "../lib/supabase";
-import { toApiError } from "./errors";
+import { ApiError, toApiError } from "./errors";
+import { pushToast } from "../components/feedback/toastBus";
 
 const rawApiBase = import.meta.env.VITE_API_URL || "http://localhost:8000";
 export const API_BASE = rawApiBase.replace(/\/+$/, "");
@@ -43,5 +44,49 @@ api.interceptors.request.use(async (config) => {
 
 api.interceptors.response.use(
   (response) => response,
-  (error) => Promise.reject(toApiError(error)),
+  (error) => {
+    const apiError = toApiError(error);
+    handleApiError(apiError);
+    return Promise.reject(apiError);
+  },
 );
+
+let lastErrorToastAt = 0;
+let lastErrorMessage = "";
+
+function handleApiError(error: ApiError) {
+  if (typeof window === "undefined") return;
+
+  if (error.status === 401) {
+    pushToast({
+      title: "Session expired",
+      message: "Please sign in again.",
+      tone: "warning",
+      duration: 6000,
+    });
+
+    const current = `${window.location.pathname}${window.location.search}`;
+    if (!window.location.pathname.startsWith("/login")) {
+      const redirect = encodeURIComponent(current);
+      window.location.href = `/login?redirect=${redirect}`;
+    }
+    return;
+  }
+
+  const isServerError = !error.status || error.status >= 500;
+  if (!isServerError) return;
+
+  const now = Date.now();
+  if (lastErrorMessage === error.message && now - lastErrorToastAt < 4000) {
+    return;
+  }
+  lastErrorMessage = error.message;
+  lastErrorToastAt = now;
+
+  pushToast({
+    title: "Request failed",
+    message: error.message,
+    tone: "error",
+    duration: 7000,
+  });
+}

@@ -113,7 +113,7 @@ export default function Register() {
                 className="btn-primary w-full"
                 disabled={isSubmitting}
               >
-                {isSubmitting ? "Creating…" : "Create account"}
+                {isSubmitting ? "Creating..." : "Create account"}
               </button>
             </form>
 

@@ -58,7 +58,7 @@ describe("RequireAuth", () => {
       </MemoryRouter>
     );
 
-    expect(screen.getByText("Loading session…")).toBeInTheDocument();
+    expect(screen.getByText("Loading session...")).toBeInTheDocument();
     expect(screen.queryByText("Protected Content")).not.toBeInTheDocument();
   });
 

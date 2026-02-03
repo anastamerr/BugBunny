@@ -37,17 +37,17 @@ const fixStatusStyles: Record<string, string> = {
 };
 
 const dastStatusLabels: Record<string, string> = {
-  confirmed_exploitable: "🔴 confirmed exploitable",
-  not_confirmed: "⚪ not confirmed",
-  inconclusive: "❓ inconclusive",
-  attempted_not_reproduced: "⚪ not confirmed",
-  blocked_auth_required: "🔒 auth required",
-  blocked_rate_limit: "⏳ rate limited",
-  inconclusive_mapping: "❓ inconclusive",
-  bad_request: "⚠️ bad request",
-  error_timeout: "⏱️ timeout",
-  error_tooling: "⚠️ DAST error",
-  not_run: "⚫ SAST only (no DAST run)",
+  confirmed_exploitable: "confirmed exploitable",
+  not_confirmed: "not confirmed",
+  inconclusive: "inconclusive",
+  attempted_not_reproduced: "not confirmed",
+  blocked_auth_required: "auth required",
+  blocked_rate_limit: "rate limited",
+  inconclusive_mapping: "inconclusive",
+  bad_request: "bad request",
+  error_timeout: "timeout",
+  error_tooling: "DAST error",
+  not_run: "SAST only (no DAST run)",
 };
 
 const dastStatusStyles: Record<string, string> = {
@@ -91,6 +91,7 @@ export function FindingCard({
 }: FindingCardProps) {
   const [isExpanded, setIsExpanded] = useState(false);
   const [showAffectedUrls, setShowAffectedUrls] = useState(false);
+  const [copiedReasoning, setCopiedReasoning] = useState(false);
 
   const findingType = finding.finding_type || "sast";
   const isDast = findingType === "dast";
@@ -134,6 +135,11 @@ export function FindingCard({
     : `${finding.file_path}:${finding.line_start}${
         finding.line_end !== finding.line_start ? `-${finding.line_end}` : ""
       }`;
+  const reasoningText = finding.ai_reasoning?.trim() ?? "";
+  const reasoningDisplay = displayText(
+    finding.ai_reasoning,
+    "No AI reasoning provided.",
+  );
 
   const meta = useMemo(() => {
     const parts: string[] = [];
@@ -195,6 +201,24 @@ export function FindingCard({
   const showDastStatus = !isDast && !finding.is_false_positive;
   const dastBadgeLabel = dastStatusLabels[dastStatus] || dastStatusLabels.not_run;
   const dastBadgeClass = dastStatusStyles[dastStatus] || "badge";
+
+  const handleCopyReasoning = async () => {
+    if (!reasoningText) return;
+    try {
+      await navigator.clipboard.writeText(reasoningText);
+    } catch {
+      const textarea = document.createElement("textarea");
+      textarea.value = reasoningText;
+      textarea.style.position = "fixed";
+      textarea.style.opacity = "0";
+      document.body.appendChild(textarea);
+      textarea.select();
+      document.execCommand("copy");
+      textarea.remove();
+    }
+    setCopiedReasoning(true);
+    window.setTimeout(() => setCopiedReasoning(false), 1500);
+  };
 
   return (
     <div className="surface-solid p-5">
@@ -379,12 +403,20 @@ export function FindingCard({
                     {cweList}
                   </div>
                 </div>
-                <div className="mt-4 text-xs font-semibold uppercase tracking-[0.2em] text-white/60">
-                  Analysis
+                <div className="mt-4 flex items-center justify-between gap-3">
+                  <div className="text-xs font-semibold uppercase tracking-[0.2em] text-white/60">
+                    Analysis
+                  </div>
+                  <button
+                    type="button"
+                    className="btn-ghost text-xs"
+                    onClick={handleCopyReasoning}
+                    disabled={!reasoningText}
+                  >
+                    {copiedReasoning ? "Copied" : "Copy reasoning"}
+                  </button>
                 </div>
-                <p className="mt-2 text-sm text-white/80">
-                  {displayText(finding.ai_reasoning, "No analysis provided.")}
-                </p>
+                <p className="mt-2 text-sm text-white/80">{reasoningDisplay}</p>
               </div>
 
               <div>
@@ -416,15 +448,20 @@ export function FindingCard({
           ) : (
             <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
               <div>
-                <div className="text-xs font-semibold uppercase tracking-[0.2em] text-white/60">
-                  AI Reasoning
+                <div className="flex items-center justify-between gap-3">
+                  <div className="text-xs font-semibold uppercase tracking-[0.2em] text-white/60">
+                    AI Reasoning
+                  </div>
+                  <button
+                    type="button"
+                    className="btn-ghost text-xs"
+                    onClick={handleCopyReasoning}
+                    disabled={!reasoningText}
+                  >
+                    {copiedReasoning ? "Copied" : "Copy reasoning"}
+                  </button>
                 </div>
-                <p className="mt-2 text-sm text-white/80">
-                  {displayText(
-                    finding.ai_reasoning,
-                    "No AI reasoning provided.",
-                  )}
-                </p>
+                <p className="mt-2 text-sm text-white/80">{reasoningDisplay}</p>
                 <div className="mt-4 text-xs font-semibold uppercase tracking-[0.2em] text-white/60">
                   Exploitability
                 </div>

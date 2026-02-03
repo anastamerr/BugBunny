@@ -64,7 +64,7 @@ export default function Dashboard() {
         <div className="relative flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
           <div className="min-w-0">
             <div className="inline-flex items-center gap-2 rounded-pill border border-neon-mint/40 bg-neon-mint/10 px-3 py-1 text-xs font-semibold tracking-[0.2em] text-neon-mint">
-              SCANGUARD OPS
+              BUGBUNNY OPS
             </div>
             <h1 className="mt-3 text-3xl font-extrabold tracking-tight text-white">
               Dashboard

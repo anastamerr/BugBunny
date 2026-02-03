@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 
@@ -27,7 +27,7 @@ const SCAN_TYPE_INFO: Record<ScanType, { label: string; description: string; ico
   },
   dast: {
     label: "DAST",
-    description: "Dynamic testing with OWASP ZAP",
+    description: "Dynamic scan of a live target with OWASP ZAP",
     icon: (
       <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
         <path strokeLinecap="round" strokeLinejoin="round" d="M12 21a9.004 9.004 0 008.716-6.747M12 21a9.004 9.004 0 01-8.716-6.747M12 21c2.485 0 4.5-4.03 4.5-9S14.485 3 12 3m0 18c-2.485 0-4.5-4.03-4.5-9S9.515 3 12 3m0 0a8.997 8.997 0 017.843 4.582M12 3a8.997 8.997 0 00-7.843 4.582m15.686 0A11.953 11.953 0 0112 10.5c-2.998 0-5.74-1.1-7.843-2.918m15.686 0A8.959 8.959 0 0121 12c0 .778-.099 1.533-.284 2.253m0 0A17.919 17.919 0 0112 16.5c-3.162 0-6.133-.815-8.716-2.247m0 0A9.015 9.015 0 013 12c0-1.605.42-3.113 1.157-4.418" />
@@ -36,7 +36,7 @@ const SCAN_TYPE_INFO: Record<ScanType, { label: string; description: string; ico
   },
   both: {
     label: "Combined",
-    description: "SAST + DAST with correlation",
+    description: "SAST + targeted DAST with correlation",
     icon: (
       <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
         <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z" />
@@ -75,9 +75,9 @@ function formatRepoName(url?: string | null): string {
 }
 
 function formatDate(value?: string): string {
-  if (!value) return "—";
+  if (!value) return "n/a";
   const dt = new Date(value);
-  if (Number.isNaN(dt.getTime())) return "—";
+  if (Number.isNaN(dt.getTime())) return "n/a";
 
   const now = Date.now();
   const diffMs = now - dt.getTime();
@@ -105,18 +105,41 @@ function shortSha(sha?: string | null): string | null {
 function formatPhaseLabel(value?: string | null): string | null {
   if (!value) return null;
   const labels: Record<string, string> = {
-    "sast.clone": "SAST · cloning",
-    "sast.scan": "SAST · semgrep",
-    "sast.analyze": "SAST · triage",
-    "dast.deploy": "DAST · deploy",
-    "dast.verify": "DAST · verify",
-    "dast.spider": "DAST · spider",
-    "dast.active_scan": "DAST · active scan",
-    "dast.alerts": "DAST · alerts",
-    "dast.targeted": "DAST · targeted",
-    correlation: "correlation",
+    "sast.clone": "SAST - cloning",
+    "sast.scan": "SAST - semgrep",
+    "sast.analyze": "SAST - triage",
+    "dast.deploy": "DAST - deploy",
+    "dast.verify": "DAST - verify",
+    "dast.spider": "DAST - spider",
+    "dast.active_scan": "DAST - active scan",
+    "dast.alerts": "DAST - alerts",
+    "dast.targeted": "DAST - targeted",
+    correlation: "Correlation",
   };
   return labels[value] || value.replace(/[_\.]/g, " ");
+}
+
+const DAST_VERIFICATION_LABELS: Record<string, string> = {
+  verified: "DAST verified",
+  unverified_url: "DAST unverified URL",
+  commit_mismatch: "DAST commit mismatch",
+  verification_error: "DAST verification error",
+  not_applicable: "DAST not applicable",
+};
+
+const DAST_VERIFICATION_STYLES: Record<string, string> = {
+  verified: "badge border-neon-mint/40 bg-neon-mint/10 text-neon-mint",
+  unverified_url: "badge border-amber-400/40 bg-amber-400/10 text-amber-200",
+  commit_mismatch: "badge border-rose-400/40 bg-rose-400/10 text-rose-200",
+  verification_error: "badge border-rose-400/40 bg-rose-400/10 text-rose-200",
+};
+
+function getDastVerificationBadge(value?: string | null) {
+  if (!value || value === "not_applicable") return null;
+  return {
+    label: DAST_VERIFICATION_LABELS[value] || `DAST ${value.replace(/[_\.]/g, " ")}`,
+    className: DAST_VERIFICATION_STYLES[value] || "badge",
+  };
 }
 
 function calculateNoiseReduction(scan: Scan): { percentage: number; filtered: number; total: number } {
@@ -216,7 +239,7 @@ function StatCard({ value, label, trend }: { value: string | number; label: stri
         <span className="stat-value">{value}</span>
         {trend && (
           <span className={trend === "up" ? "text-neon-mint" : "text-rose-400"}>
-            {trend === "up" ? "↑" : "↓"}
+            {trend === "up" ? "+" : "-"}
           </span>
         )}
       </div>
@@ -256,6 +279,11 @@ function ScanCard({
   const isPaused = Boolean(scan.is_paused);
   const isActive = isPaused || STATUS_CONFIG[scan.status].isActive;
   const phaseLabel = formatPhaseLabel(scan.phase);
+  const phaseMessage = scan.phase_message?.trim();
+  const verificationBadge = getDastVerificationBadge(scan.dast_verification_status);
+  const updatedAt = scan.updated_at || scan.created_at;
+  const updatedLabel = formatDate(updatedAt);
+  const updatedTitle = updatedAt ? new Date(updatedAt).toLocaleString() : undefined;
   const canDelete =
     scan.status === "pending" ||
     scan.is_paused ||
@@ -275,8 +303,15 @@ function ScanCard({
               Webhook
             </span>
           )}
+          {verificationBadge && scan.scan_type !== "sast" ? (
+            <span className={verificationBadge.className}>
+              {verificationBadge.label}
+            </span>
+          ) : null}
         </div>
-        <span className="text-xs text-white/40">{formatDate(scan.created_at)}</span>
+        <span className="text-xs text-white/40" title={updatedTitle}>
+          Updated {updatedLabel}
+        </span>
       </div>
 
       <div className="scan-card-body">
@@ -318,7 +353,10 @@ function ScanCard({
                     <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6l4 2" />
                     <circle cx="12" cy="12" r="9" strokeLinecap="round" strokeLinejoin="round" />
                   </svg>
-                  <span>{phaseLabel}</span>
+                  <span className="truncate">
+                    {phaseLabel}
+                    {phaseMessage ? ` - ${phaseMessage}` : ""}
+                  </span>
                 </span>
               )}
             </div>
@@ -444,6 +482,27 @@ function NewScanForm({
   errorMessage: string | null;
 }) {
   const [mode, setMode] = useState<"quick" | "saved">("quick");
+  const [touched, setTouched] = useState({
+    repo: false,
+    target: false,
+    consent: false,
+    selectedRepo: false,
+  });
+
+  const repoMissing = scanType !== "dast" && mode === "quick" && !repoUrl.trim();
+  const selectedRepoMissing =
+    scanType !== "dast" && mode === "saved" && !selectedRepoId;
+  const targetMissing = scanType !== "sast" && !targetUrl.trim();
+  const consentMissing = scanType !== "sast" && !dastConsent;
+
+  const showRepoError = repoMissing && touched.repo;
+  const showSelectedRepoError = selectedRepoMissing && touched.selectedRepo;
+  const showTargetError = targetMissing && touched.target;
+  const showConsentError = consentMissing && touched.consent;
+
+  const markTouched = (field: keyof typeof touched) => {
+    setTouched((prev) => ({ ...prev, [field]: true }));
+  };
 
   const canSubmit = useMemo(() => {
     if (isLoading) return false;
@@ -518,23 +577,48 @@ function NewScanForm({
                 <path strokeLinecap="round" strokeLinejoin="round" d="M12 21a9.004 9.004 0 008.716-6.747M12 21a9.004 9.004 0 01-8.716-6.747M12 21c2.485 0 4.5-4.03 4.5-9S14.485 3 12 3m0 18c-2.485 0-4.5-4.03-4.5-9S9.515 3 12 3m0 0a8.997 8.997 0 017.843 4.582M12 3a8.997 8.997 0 00-7.843 4.582m15.686 0A11.953 11.953 0 0112 10.5c-2.998 0-5.74-1.1-7.843-2.918m15.686 0A8.959 8.959 0 0121 12c0 .778-.099 1.533-.284 2.253m0 0A17.919 17.919 0 0112 16.5c-3.162 0-6.133-.815-8.716-2.247m0 0A9.015 9.015 0 013 12c0-1.605.42-3.113 1.157-4.418" />
               </svg>
               <input
-                className="input input-with-icon w-full"
+                className={`input input-with-icon w-full ${
+                  showTargetError ? "border-rose-400 focus:border-rose-400" : ""
+                }`}
                 placeholder="https://app.example.com"
                 value={targetUrl}
                 onChange={(e) => setTargetUrl(e.target.value)}
+                onBlur={() => markTouched("target")}
+                aria-invalid={showTargetError}
               />
             </div>
+            {showTargetError ? (
+              <p className="mt-2 text-xs text-rose-200">
+                Target URL is required for DAST scans.
+              </p>
+            ) : null}
             <label className="mt-3 flex items-start gap-3 cursor-pointer group">
               <input
                 type="checkbox"
                 className="checkbox mt-0.5"
                 checked={dastConsent}
-                onChange={(e) => setDastConsent(e.target.checked)}
+                onChange={(e) => {
+                  setDastConsent(e.target.checked);
+                  if (e.target.checked) {
+                    setTouched((prev) => ({ ...prev, consent: true }));
+                  }
+                }}
+                onBlur={() => markTouched("consent")}
               />
               <span className="text-sm text-white/70 group-hover:text-white/90 transition-colors">
-                I confirm I am authorized to perform security testing on this target
+                I confirm I am authorized to run security testing on this target
               </span>
             </label>
+            {showConsentError ? (
+              <p className="mt-2 text-xs text-rose-200">
+                Authorization is required before running DAST.
+              </p>
+            ) : (
+              <p className="mt-2 text-xs text-white/50">
+                Required for DAST. Only scan systems you own or have explicit
+                permission to test.
+              </p>
+            )}
             <div className="mt-4 grid gap-4 sm:grid-cols-2">
               <div>
                 <label className="block text-xs font-semibold uppercase tracking-widest text-violet-300/80 mb-2">
@@ -604,12 +688,21 @@ function NewScanForm({
                       <path strokeLinecap="round" strokeLinejoin="round" d="M13.19 8.688a4.5 4.5 0 011.242 7.244l-4.5 4.5a4.5 4.5 0 01-6.364-6.364l1.757-1.757m13.35-.622l1.757-1.757a4.5 4.5 0 00-6.364-6.364l-4.5 4.5a4.5 4.5 0 001.242 7.244" />
                     </svg>
                     <input
-                      className="input input-with-icon w-full"
+                      className={`input input-with-icon w-full ${
+                        showRepoError ? "border-rose-400 focus:border-rose-400" : ""
+                      }`}
                       placeholder="https://github.com/org/repo"
                       value={repoUrl}
                       onChange={(e) => setRepoUrl(e.target.value)}
+                      onBlur={() => markTouched("repo")}
+                      aria-invalid={showRepoError}
                     />
                   </div>
+                  {showRepoError ? (
+                    <p className="mt-2 text-xs text-rose-200">
+                      Repository URL is required for SAST scans.
+                    </p>
+                  ) : null}
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-white/50 mb-2">Branch</label>
@@ -632,7 +725,14 @@ function NewScanForm({
                 <select
                   className="select w-full"
                   value={selectedRepoId}
-                  onChange={(e) => setSelectedRepoId(e.target.value)}
+                  onChange={(e) => {
+                    setSelectedRepoId(e.target.value);
+                    if (e.target.value) {
+                      setTouched((prev) => ({ ...prev, selectedRepo: true }));
+                    }
+                  }}
+                  onBlur={() => markTouched("selectedRepo")}
+                  aria-invalid={showSelectedRepoError}
                 >
                   <option value="">Choose a saved repository...</option>
                   {repos.map((repo) => (
@@ -641,10 +741,15 @@ function NewScanForm({
                     </option>
                   ))}
                 </select>
+                {showSelectedRepoError ? (
+                  <p className="mt-2 text-xs text-rose-200">
+                    Select a repository to run SAST scans.
+                  </p>
+                ) : null}
                 <div className="mt-2 flex items-center justify-between text-xs text-white/40">
                   <span>Manage your saved repositories</span>
                   <Link to="/repos" className="text-neon-mint hover:text-neon-mint/80 transition-colors">
-                    Edit list →
+                    Edit list ->
                   </Link>
                 </div>
               </div>
@@ -735,6 +840,7 @@ export default function Scans() {
   const [statusFilter, setStatusFilter] = useState<Scan["status"] | "all">("all");
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const newScanRef = useRef<HTMLDivElement | null>(null);
 
   // Data Fetching
   const { data, isLoading, error } = useQuery({
@@ -917,6 +1023,24 @@ export default function Scans() {
     };
   }, [data]);
 
+  const focusNewScanForm = () => {
+    requestAnimationFrame(() => {
+      newScanRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      const firstField = newScanRef.current?.querySelector(
+        "input, select, textarea, button",
+      ) as HTMLElement | null;
+      firstField?.focus();
+    });
+  };
+
+  const handleToggleNewScan = () => {
+    const next = !showNewScan;
+    setShowNewScan(next);
+    if (next) {
+      focusNewScanForm();
+    }
+  };
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -933,7 +1057,7 @@ export default function Scans() {
           <button
             type="button"
             className={showNewScan ? "btn-ghost" : "btn-primary"}
-            onClick={() => setShowNewScan(!showNewScan)}
+            onClick={handleToggleNewScan}
           >
             {showNewScan ? (
               <>
@@ -965,31 +1089,33 @@ export default function Scans() {
 
       {/* New Scan Form */}
       {showNewScan && (
-        <NewScanForm
-          scanType={scanType}
-          setScanType={setScanType}
-          repoUrl={repoUrl}
-          setRepoUrl={setRepoUrl}
-          branch={branch}
-          setBranch={setBranch}
-          dependencyHealthEnabled={dependencyHealthEnabled}
-          setDependencyHealthEnabled={setDependencyHealthEnabled}
-          targetUrl={targetUrl}
-          setTargetUrl={setTargetUrl}
-          dastConsent={dastConsent}
-          setDastConsent={setDastConsent}
-          dastAuthHeaders={dastAuthHeaders}
-          setDastAuthHeaders={setDastAuthHeaders}
-          dastCookies={dastCookies}
-          setDastCookies={setDastCookies}
-          selectedRepoId={selectedRepoId}
-          setSelectedRepoId={setSelectedRepoId}
-          repos={repoList}
-          onSubmit={() => createScan.mutate()}
-          onSubmitSaved={() => createSavedScan.mutate()}
-          isLoading={createScan.isPending || createSavedScan.isPending}
-          errorMessage={errorMessage}
-        />
+        <div ref={newScanRef}>
+          <NewScanForm
+            scanType={scanType}
+            setScanType={setScanType}
+            repoUrl={repoUrl}
+            setRepoUrl={setRepoUrl}
+            branch={branch}
+            setBranch={setBranch}
+            dependencyHealthEnabled={dependencyHealthEnabled}
+            setDependencyHealthEnabled={setDependencyHealthEnabled}
+            targetUrl={targetUrl}
+            setTargetUrl={setTargetUrl}
+            dastConsent={dastConsent}
+            setDastConsent={setDastConsent}
+            dastAuthHeaders={dastAuthHeaders}
+            setDastAuthHeaders={setDastAuthHeaders}
+            dastCookies={dastCookies}
+            setDastCookies={setDastCookies}
+            selectedRepoId={selectedRepoId}
+            setSelectedRepoId={setSelectedRepoId}
+            repos={repoList}
+            onSubmit={() => createScan.mutate()}
+            onSubmitSaved={() => createSavedScan.mutate()}
+            isLoading={createScan.isPending || createSavedScan.isPending}
+            errorMessage={errorMessage}
+          />
+        </div>
       )}
 
       {/* Demo Dataset */}
@@ -1107,7 +1233,12 @@ export default function Scans() {
 
       {/* Empty State */}
       {!isLoading && !error && scans.length === 0 && !showNewScan && (
-        <EmptyState onCreateScan={() => setShowNewScan(true)} />
+        <EmptyState
+          onCreateScan={() => {
+            setShowNewScan(true);
+            focusNewScanForm();
+          }}
+        />
       )}
     </div>
   );

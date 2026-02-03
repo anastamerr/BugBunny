@@ -19,7 +19,7 @@ export function RequireAuth({ children }: { children: ReactNode }) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-void text-white">
         <div className="surface-solid px-6 py-4 text-sm text-white/70">
-          Loading session…
+          Loading session...
         </div>
       </div>
     );

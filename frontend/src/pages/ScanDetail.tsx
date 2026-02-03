@@ -54,18 +54,33 @@ function formatList(values?: string[] | null, emptyLabel = "none") {
 }
 
 const PHASE_LABELS: Record<string, string> = {
-  "sast.clone": "SAST · Cloning",
-  "sast.scan": "SAST · Semgrep",
-  "sast.analyze": "SAST · AI triage",
-  "dast.deploy": "DAST · Deploy",
-  "dast.verify": "DAST · Verification",
-  "dast.spider": "DAST · Spider",
-  "dast.active_scan": "DAST · Active scan",
-  "dast.alerts": "DAST · Alerts",
-  "dast.targeted": "DAST · Targeted checks",
+  "sast.clone": "SAST - Cloning",
+  "sast.scan": "SAST - Semgrep",
+  "sast.analyze": "SAST - AI triage",
+  "dast.deploy": "DAST - Deploy",
+  "dast.verify": "DAST - Verification",
+  "dast.spider": "DAST - Spider",
+  "dast.active_scan": "DAST - Active scan",
+  "dast.alerts": "DAST - Alerts",
+  "dast.targeted": "DAST - Targeted checks",
   correlation: "Correlation",
   completed: "Completed",
   failed: "Failed",
+};
+
+const DAST_VERIFICATION_LABELS: Record<string, string> = {
+  verified: "DAST verified",
+  unverified_url: "DAST unverified URL",
+  commit_mismatch: "DAST commit mismatch",
+  verification_error: "DAST verification error",
+  not_applicable: "DAST not applicable",
+};
+
+const DAST_VERIFICATION_STYLES: Record<string, string> = {
+  verified: "badge border-neon-mint/40 bg-neon-mint/10 text-neon-mint",
+  unverified_url: "badge border-amber-400/40 bg-amber-400/10 text-amber-200",
+  commit_mismatch: "badge border-rose-400/40 bg-rose-400/10 text-rose-200",
+  verification_error: "badge border-rose-400/40 bg-rose-400/10 text-rose-200",
 };
 
 function formatPhase(value?: string | null) {
@@ -73,16 +88,12 @@ function formatPhase(value?: string | null) {
   return PHASE_LABELS[value] || value.replace(/[_\.]/g, " ");
 }
 
-function formatDastVerification(value?: string | null) {
-  if (!value) return null;
-  const labels: Record<string, string> = {
-    verified: "DAST verified",
-    unverified_url: "DAST unverified URL",
-    commit_mismatch: "DAST commit mismatch",
-    verification_error: "DAST verification error",
-    not_applicable: "DAST not applicable",
+function getDastVerificationBadge(value?: string | null) {
+  if (!value || value === "not_applicable") return null;
+  return {
+    label: DAST_VERIFICATION_LABELS[value] || `DAST ${value.replace(/[_\.]/g, " ")}`,
+    className: DAST_VERIFICATION_STYLES[value] || "badge",
   };
-  return labels[value] || `DAST ${value.replace(/[_\.]/g, " ")}`;
 }
 
 export default function ScanDetail() {
@@ -267,7 +278,9 @@ export default function ScanDetail() {
   const isDastEnabled = scan?.scan_type !== "sast";
   const headline = scan?.repo_url || scan?.target_url || "DAST scan";
   const phaseLabel = formatPhase(scan?.phase);
-  const dastVerificationLabel = formatDastVerification(scan?.dast_verification_status);
+  const dastVerificationBadge = getDastVerificationBadge(
+    scan?.dast_verification_status,
+  );
 
   const telemetry = useMemo(() => {
     const detectedLanguages = formatList(
@@ -474,8 +487,10 @@ export default function ScanDetail() {
               {scan.scan_type !== "sast" ? (
                 <span className="badge">DAST</span>
               ) : null}
-              {dastVerificationLabel && scan.scan_type !== "sast" ? (
-                <span className="badge">{dastVerificationLabel}</span>
+              {dastVerificationBadge && scan.scan_type !== "sast" ? (
+                <span className={dastVerificationBadge.className}>
+                  {dastVerificationBadge.label}
+                </span>
               ) : null}
               {scan.scan_type !== "dast" ? (
                 <span className="badge">branch {scan.branch}</span>
@@ -514,6 +529,9 @@ export default function ScanDetail() {
             ) : null}
             <p className="mt-1 text-sm text-white/60">
               Started {formatDate(scan.created_at)}
+            </p>
+            <p className="mt-1 text-xs text-white/50">
+              Updated {formatDate(scan.updated_at)}
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -653,7 +671,7 @@ export default function ScanDetail() {
             {phaseLabel ? (
               <div className="mt-2 text-xs text-white/60">
                 Phase: {phaseLabel}
-                {scan.phase_message ? ` — ${scan.phase_message}` : ""}
+                {scan.phase_message ? ` - ${scan.phase_message}` : ""}
               </div>
             ) : null}
           </div>
@@ -765,7 +783,7 @@ export default function ScanDetail() {
           <div className="mt-2 text-xs text-white/60">
             {hasGroupedDast ? (
               <span>
-                {rawDastCount} raw alerts → {groupedDastCount} grouped findings
+                {rawDastCount} raw alerts -> {groupedDastCount} grouped findings
               </span>
             ) : (
               <span>{groupedFindingsCount} findings</span>
