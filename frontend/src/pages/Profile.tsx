@@ -26,6 +26,7 @@ export default function Profile() {
   const [allowlist, setAllowlist] = useState("");
   const [allowlistTouched, setAllowlistTouched] = useState(false);
   const [initialized, setInitialized] = useState(false);
+  const [copyMessage, setCopyMessage] = useState<string | null>(null);
   const [flags, setFlags] = useState({
     enable_scan_push: true,
     enable_scan_pr: true,
@@ -78,7 +79,37 @@ export default function Profile() {
     },
   });
 
+  const flagsDirty = Boolean(data) && (
+    flags.enable_scan_push !== data?.settings.enable_scan_push ||
+    flags.enable_scan_pr !== data?.settings.enable_scan_pr ||
+    flags.enable_issue_ingest !== data?.settings.enable_issue_ingest ||
+    flags.enable_issue_comment_ingest !== data?.settings.enable_issue_comment_ingest
+  );
+  const hasChanges = tokenTouched || secretTouched || allowlistTouched || flagsDirty;
+
   const webhookUrl = `${API_BASE}/api/webhooks/github`;
+
+  const copyWebhookUrl = async () => {
+    try {
+      if (navigator?.clipboard?.writeText) {
+        await navigator.clipboard.writeText(webhookUrl);
+      } else {
+        const textarea = document.createElement("textarea");
+        textarea.value = webhookUrl;
+        textarea.style.position = "fixed";
+        textarea.style.opacity = "0";
+        document.body.appendChild(textarea);
+        textarea.focus();
+        textarea.select();
+        document.execCommand("copy");
+        textarea.remove();
+      }
+      setCopyMessage("Webhook URL copied.");
+    } catch {
+      setCopyMessage("Unable to copy webhook URL.");
+    }
+    window.setTimeout(() => setCopyMessage(null), 2000);
+  };
 
   return (
     <div className="space-y-6">
@@ -127,10 +158,20 @@ export default function Profile() {
                 <div className="text-xs uppercase tracking-[0.2em] text-white/50">
                   Webhook URL
                 </div>
-                <div className="mt-1 break-all font-mono text-xs text-white/80">
-                  {webhookUrl}
+                <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-white/80">
+                  <span className="break-all font-mono">{webhookUrl}</span>
+                  <button
+                    type="button"
+                    className="btn-ghost text-xs"
+                    onClick={copyWebhookUrl}
+                  >
+                    Copy
+                  </button>
                 </div>
               </div>
+              {copyMessage ? (
+                <div className="text-xs text-white/50">{copyMessage}</div>
+              ) : null}
             </div>
           )}
         </div>
@@ -144,6 +185,7 @@ export default function Profile() {
               <span>Trigger scans on push events</span>
               <input
                 type="checkbox"
+                className="checkbox"
                 checked={flags.enable_scan_push}
                 onChange={(event) =>
                   setFlags((prev) => ({
@@ -157,6 +199,7 @@ export default function Profile() {
               <span>Trigger scans on pull requests</span>
               <input
                 type="checkbox"
+                className="checkbox"
                 checked={flags.enable_scan_pr}
                 onChange={(event) =>
                   setFlags((prev) => ({
@@ -170,6 +213,7 @@ export default function Profile() {
               <span>Ingest GitHub issues</span>
               <input
                 type="checkbox"
+                className="checkbox"
                 checked={flags.enable_issue_ingest}
                 onChange={(event) =>
                   setFlags((prev) => ({
@@ -183,6 +227,7 @@ export default function Profile() {
               <span>Ingest issue comments</span>
               <input
                 type="checkbox"
+                className="checkbox"
                 checked={flags.enable_issue_comment_ingest}
                 onChange={(event) =>
                   setFlags((prev) => ({
@@ -339,10 +384,13 @@ export default function Profile() {
             type="button"
             className="btn-primary"
             onClick={() => updateProfile.mutate()}
-            disabled={updateProfile.isPending}
+            disabled={updateProfile.isPending || !hasChanges}
           >
             {updateProfile.isPending ? "Saving..." : "Save settings"}
           </button>
+          {!hasChanges ? (
+            <span className="text-sm text-white/50">No changes to save.</span>
+          ) : null}
           {updateProfile.isError ? (
             <span className="text-sm text-rose-200">
               {updateProfile.error instanceof Error

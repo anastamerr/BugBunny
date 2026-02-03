@@ -15,10 +15,24 @@ export default function Login() {
 
   useEffect(() => {
     if (user) {
-      const target = (location.state as { from?: string })?.from ?? "/";
+      const fromState = (location.state as { from?: string })?.from;
+      const searchParams = new URLSearchParams(location.search);
+      const redirectParam = searchParams.get("redirect");
+      let redirectTarget = redirectParam ?? "/";
+      if (redirectParam) {
+        try {
+          redirectTarget = decodeURIComponent(redirectParam);
+        } catch {
+          redirectTarget = redirectParam;
+        }
+      }
+      if (redirectTarget && !redirectTarget.startsWith("/")) {
+        redirectTarget = "/";
+      }
+      const target = fromState ?? redirectTarget ?? "/";
       navigate(target, { replace: true });
     }
-  }, [user, location.state, navigate]);
+  }, [user, location.search, location.state, navigate]);
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
@@ -47,12 +61,12 @@ export default function Login() {
             <div className="flex items-center gap-4">
               <img
                 src="/icon.png"
-                alt="ScanGuard AI logo"
+                alt="BugBunny logo"
                 className="h-12 w-12 rounded-card border border-white/10 bg-white/5 p-2"
               />
               <div>
                 <div className="text-xs font-semibold uppercase tracking-[0.25em] text-white/60">
-                  ScanGuard AI
+                  BugBunny
                 </div>
                 <h1 className="mt-1 text-2xl font-extrabold tracking-tight text-white">
                   Welcome back
@@ -88,7 +102,7 @@ export default function Login() {
                   className="input mt-2 w-full"
                   type="password"
                   autoComplete="current-password"
-                  placeholder="••••••••"
+                  placeholder="********"
                   value={password}
                   onChange={(event) => setPassword(event.target.value)}
                   required
@@ -104,7 +118,7 @@ export default function Login() {
                 className="btn-primary w-full"
                 disabled={isSubmitting}
               >
-                {isSubmitting ? "Signing in…" : "Sign in"}
+                {isSubmitting ? "Signing in..." : "Sign in"}
               </button>
             </form>
 

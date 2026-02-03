@@ -14,7 +14,8 @@ great-expectations
 pyod
 scikit-learn
 httpx
-python-socketio
+python-socketio>=5
+python-engineio>=4
 alembic
 semgrep
 pyjwt

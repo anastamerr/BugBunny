@@ -8,6 +8,7 @@ import remarkGfm from "remark-gfm";
 
 import { bugsApi } from "../api/bugs";
 import { chatApi } from "../api/chat";
+import { toApiErrorFromResponse } from "../api/errors";
 import { scansApi } from "../api/scans";
 import type { BugReport, Finding } from "../types";
 
@@ -41,6 +42,29 @@ function truncateLabel(value: string, max = 48) {
   if (value.length <= max) return value;
   return `${value.slice(0, max - 3)}...`;
 }
+
+function resizeTextarea(el: HTMLTextAreaElement | null) {
+  if (!el) return;
+  el.style.height = "auto";
+  const maxHeight = 320;
+  const next = Math.min(el.scrollHeight, maxHeight);
+  el.style.height = `${next}px`;
+}
+
+const QUICK_PROMPTS = [
+  {
+    label: "Summarize top risks",
+    value: "Summarize the latest high-severity findings and why they matter.",
+  },
+  {
+    label: "Explain a finding",
+    value: "Explain why this finding is exploitable and how to fix it.",
+  },
+  {
+    label: "Triage next steps",
+    value: "List the next three actions the team should take this week.",
+  },
+];
 
 const markdownComponents = {
   p: ({ children }: { children?: ReactNode }) => (
@@ -171,6 +195,10 @@ export default function Chat() {
     }
   }, [prefill, messages.length, input]);
 
+  useEffect(() => {
+    resizeTextarea(inputRef.current);
+  }, [input]);
+
   const { data: mentionFindings = [] } = useQuery({
     queryKey: ["mentions", "findings"],
     queryFn: () =>
@@ -218,6 +246,25 @@ export default function Chat() {
     setMentionIndex(0);
   }
 
+  function applyPrompt(value: string) {
+    setInput(value);
+    closeMention();
+    setError(null);
+    requestAnimationFrame(() => {
+      resizeTextarea(inputRef.current);
+      inputRef.current?.focus();
+    });
+  }
+
+  function clearConversation() {
+    if (messages.length === 0) return;
+    setMessages([]);
+    setError(null);
+    closeMention();
+    setManualContext(false);
+    setActiveContext(baseContext);
+  }
+
   function updateMentionState(value: string, cursor: number) {
     const before = value.slice(0, cursor);
     const atIndex = before.lastIndexOf("@");
@@ -263,6 +310,7 @@ export default function Chat() {
       label: `${item.type} ${truncateLabel(item.label, 36)}`,
     });
     closeMention();
+    resizeTextarea(inputRef.current);
 
     requestAnimationFrame(() => {
       if (textarea) {
@@ -410,7 +458,7 @@ export default function Chat() {
     try {
       const response = await chatApi.stream(buildPayload(text), controller.signal);
       if (!response.ok) {
-        throw new Error("Failed to stream response.");
+        throw await toApiErrorFromResponse(response);
       }
       await readStream(response);
     } catch (err: unknown) {
@@ -439,15 +487,28 @@ export default function Chat() {
 
   const showBaseContext = !manualContext && (bugId || scanId || findingId);
   const showManualContext = manualContext && activeContext;
+  const contextSummary = activeContext ? activeContext.label : "No active focus";
 
   return (
     <div className="mx-auto flex max-w-3xl flex-col gap-6">
       <div className="surface-solid p-6">
-        <h1 className="text-2xl font-extrabold tracking-tight text-white">Chat</h1>
-        <p className="mt-1 text-sm text-white/60">
-          Ask ScanGuard AI about scans, findings, and triage recommendations. The
-          assistant is grounded in your latest platform data.
-        </p>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h1 className="text-2xl font-extrabold tracking-tight text-white">Chat</h1>
+            <p className="mt-1 text-sm text-white/60">
+              Ask BugBunny about scans, findings, and triage recommendations. The
+              assistant is grounded in your latest platform data.
+            </p>
+          </div>
+          <button
+            type="button"
+            className="btn-ghost"
+            onClick={clearConversation}
+            disabled={messages.length === 0}
+          >
+            Clear chat
+          </button>
+        </div>
         {showBaseContext || showManualContext ? (
           <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-white/60">
             {showBaseContext ? (
@@ -484,13 +545,31 @@ export default function Chat() {
             ) : null}
           </div>
         ) : null}
+        <div className="mt-4 rounded-card border border-white/10 bg-surface px-4 py-3 text-xs text-white/70">
+          <div className="text-[11px] uppercase tracking-[0.2em] text-white/50">
+            Focus
+          </div>
+          <div className="mt-1 text-sm text-white/80">{contextSummary}</div>
+        </div>
       </div>
 
       <div className="surface-solid p-5">
         <div className="space-y-3">
           {messages.length === 0 && (
-            <div className="text-sm text-white/60">
-              Try: "Summarize the latest high-severity findings."
+            <div className="space-y-3 text-sm text-white/60">
+              <div>Try one of these to get started:</div>
+              <div className="flex flex-wrap gap-2">
+                {QUICK_PROMPTS.map((prompt) => (
+                  <button
+                    key={prompt.label}
+                    type="button"
+                    className="btn-ghost text-xs"
+                    onClick={() => applyPrompt(prompt.value)}
+                  >
+                    {prompt.label}
+                  </button>
+                ))}
+              </div>
             </div>
           )}
 
@@ -526,6 +605,11 @@ export default function Chat() {
             </div>
           ))}
         </div>
+        {isSending ? (
+          <div className="mt-4 text-xs text-white/50" role="status" aria-live="polite">
+            Streaming response...
+          </div>
+        ) : null}
       </div>
 
       {error && (
@@ -549,6 +633,7 @@ export default function Chat() {
               }}
               onKeyDown={handleKeyDown}
               disabled={isSending}
+              aria-label="Chat prompt"
             />
             {mentionOpen ? (
               <div className="absolute left-0 right-0 top-full z-20 mt-2 rounded-card border border-white/10 bg-void shadow-[0_18px_40px_rgba(0,0,0,0.5)]">
@@ -601,7 +686,14 @@ export default function Chat() {
               onClick={isSending ? stopStreaming : undefined}
               aria-label={isSending ? "Stop" : "Send"}
             >
-              {isSending ? <Square size={16} /> : "Send"}
+              {isSending ? (
+                <span className="flex items-center gap-2">
+                  <Square size={16} />
+                  Stop
+                </span>
+              ) : (
+                "Send"
+              )}
             </button>
           </div>
         </div>

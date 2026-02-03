@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import subprocess
+import tempfile
 from pathlib import Path
 from typing import Dict, List
 
@@ -12,8 +14,13 @@ from .types import RawFinding
 class SemgrepRunner:
     def __init__(self, semgrep_path: str = "semgrep") -> None:
         self.semgrep_path = semgrep_path
+        # Keep scans bounded in local/dev environments where Semgrep can hang.
+        self.timeout_seconds = 600
 
-    async def scan(self, repo_path: Path, languages: List[str]) -> List[RawFinding]:
+    async def scan(self, repo_path: Path | str, languages: List[str]) -> List[RawFinding]:
+        # Ensure repo_path is a Path object
+        repo_path = Path(repo_path) if isinstance(repo_path, str) else repo_path
+
         cmd = [
             self.semgrep_path,
             "--json",
@@ -107,15 +114,30 @@ class SemgrepRunner:
         return output or None
 
     def _run_command(self, cmd: List[str]) -> str:
+        env = os.environ.copy()
+        cache_dir = Path(tempfile.gettempdir()) / "semgrep-cache"
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        env.setdefault("SEMGREP_USER_LOG_FILE", str(cache_dir / "semgrep.log"))
+        env.setdefault("SEMGREP_CACHE_DIR", str(cache_dir))
+        env.setdefault("SEMGREP_SEND_METRICS", "off")
+
+        cert_path = Path("/etc/ssl/cert.pem")
+        if cert_path.exists():
+            env.setdefault("SSL_CERT_FILE", str(cert_path))
+
         try:
             result = subprocess.run(
                 cmd,
                 capture_output=True,
                 text=True,
                 check=False,
+                env=env,
+                timeout=self.timeout_seconds,
             )
         except FileNotFoundError as exc:
             raise RuntimeError("Semgrep CLI is not installed or not in PATH") from exc
+        except subprocess.TimeoutExpired as exc:
+            raise RuntimeError("Semgrep scan timed out") from exc
 
         stdout = result.stdout or ""
         stderr = result.stderr or ""

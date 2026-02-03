@@ -1,16 +1,25 @@
 import { NavLink, Outlet } from "react-router-dom";
+import {
+  Bug,
+  FolderGit2,
+  LayoutDashboard,
+  MessagesSquare,
+  Radar,
+  Settings,
+  LogOut,
+} from "lucide-react";
 
 import { RealtimeListener } from "../realtime/RealtimeListener";
 import { RealtimeStatus } from "../realtime/RealtimeStatus";
 import { useAuth } from "../../hooks/useAuth";
 
 const navItems = [
-  { to: "/", label: "Dashboard", end: true },
-  { to: "/scans", label: "Scans" },
-  { to: "/repos", label: "Repositories" },
-  { to: "/bugs", label: "Bugs" },
-  { to: "/chat", label: "Chat" },
-  { to: "/settings", label: "Settings" },
+  { to: "/", label: "Dashboard", end: true, icon: <LayoutDashboard className="h-4 w-4" /> },
+  { to: "/scans", label: "Scans", icon: <Radar className="h-4 w-4" /> },
+  { to: "/repos", label: "Repositories", icon: <FolderGit2 className="h-4 w-4" /> },
+  { to: "/bugs", label: "Bugs", icon: <Bug className="h-4 w-4" /> },
+  { to: "/chat", label: "Chat", icon: <MessagesSquare className="h-4 w-4" /> },
+  { to: "/settings", label: "Settings", icon: <Settings className="h-4 w-4" /> },
 ];
 
 function linkClass(isActive: boolean) {
@@ -36,13 +45,13 @@ export function Layout() {
       </div>
       <RealtimeListener />
       <div className="relative mx-auto flex min-h-screen w-full max-w-7xl flex-col gap-4 p-4 lg:flex-row lg:gap-6 lg:p-6">
-        <aside className="surface w-full p-4 lg:w-80">
+        <aside className="surface w-full shrink-0 p-4 lg:w-80">
           <div className="flex items-start justify-between gap-4">
             <div className="min-w-0">
               <div className="flex items-center gap-2">
                 <span className="h-2.5 w-2.5 rounded-pill bg-neon-mint shadow-[0_0_28px_rgba(0,215,104,0.35)]" />
                 <div className="text-xs font-semibold uppercase tracking-[0.2em] text-white/60">
-                  ScanGuard AI
+                  BugBunny
                 </div>
               </div>
               <div className="mt-2 text-xl font-extrabold tracking-tight">
@@ -54,7 +63,7 @@ export function Layout() {
             </div>
             <img
               src="/icon.png"
-              alt="ScanGuard AI logo"
+              alt="BugBunny logo"
               className="h-10 w-10 rounded-card border border-white/10 bg-white/5 p-1.5"
             />
           </div>
@@ -67,7 +76,10 @@ export function Layout() {
                 end={item.end}
                 className={({ isActive }) => linkClass(isActive)}
               >
-                <span className="truncate">{item.label}</span>
+                <span className="flex items-center gap-2 truncate">
+                  {item.icon}
+                  <span className="truncate">{item.label}</span>
+                </span>
                 <span className="h-1.5 w-1.5 rounded-pill bg-white/0 transition group-[.active]:bg-void/70" />
               </NavLink>
             ))}
@@ -82,9 +94,10 @@ export function Layout() {
             </div>
             <button
               type="button"
-              className="btn-ghost mt-3 w-full justify-center text-xs"
+              className="btn-ghost mt-3 w-full justify-center gap-2 text-xs"
               onClick={() => signOut()}
             >
+              <LogOut className="h-4 w-4" />
               Sign out
             </button>
           </div>

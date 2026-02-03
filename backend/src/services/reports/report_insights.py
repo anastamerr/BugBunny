@@ -85,7 +85,7 @@ async def generate_report_insights(
 
 def _system_prompt() -> str:
     return (
-        "You are ScanGuard AI, a security program advisor.\n"
+        "You are BugBunny, a security program advisor.\n"
         "Write concise, business-ready security report insights.\n"
         "Prioritize clarity, risk posture, and actionable next steps.\n"
         "Return only valid JSON."

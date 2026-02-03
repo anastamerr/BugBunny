@@ -14,12 +14,31 @@ export default function Settings() {
               Configure integrations, real-time updates, and AI triage.
             </p>
           </div>
-          <Link
-            to="/profile"
-            className="btn-ghost h-11 w-11 justify-center p-0"
-            aria-label="Profile"
-          >
-            <UserCircle className="h-5 w-5" />
+          <div className="flex items-center gap-2">
+            <Link to="/profile" className="btn-ghost">
+              Open Profile
+            </Link>
+            <Link
+              to="/profile"
+              className="btn-ghost h-11 w-11 justify-center p-0"
+              aria-label="Profile"
+            >
+              <UserCircle className="h-5 w-5" />
+            </Link>
+          </div>
+        </div>
+      </div>
+
+      <div className="surface-solid p-5">
+        <div className="text-xs font-semibold uppercase tracking-[0.2em] text-white/60">
+          Quick Actions
+        </div>
+        <div className="mt-4 flex flex-wrap gap-2">
+          <Link to="/profile" className="btn-primary">
+            Manage credentials
+          </Link>
+          <Link to="/scans" className="btn-ghost">
+            Review recent scans
           </Link>
         </div>
       </div>

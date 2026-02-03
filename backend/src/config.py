@@ -19,6 +19,7 @@ class Settings(BaseSettings):
     redis_url: str = "redis://redis:6379/0"
     pinecone_api_key: Optional[str] = None
     pinecone_environment: Optional[str] = None
+    skip_pinecone: bool = False
     ollama_host: str = "http://ollama:11434"
     ollama_model: str = "llama3:8b"
 
@@ -41,18 +42,28 @@ class Settings(BaseSettings):
     supabase_jwt_issuer: Optional[str] = None
     supabase_url: Optional[str] = None
     supabase_service_key: Optional[str] = None
-    nuclei_templates_path: Optional[str] = None
-    nuclei_timeout_seconds: int = 300
-    nuclei_rate_limit: Optional[int] = None
-    nuclei_severities: Optional[str] = None
-    nuclei_request_timeout_seconds: Optional[int] = None
-    nuclei_tags: Optional[str] = None
-    nuclei_exclude_tags: Optional[str] = None
-    nuclei_protocols: Optional[str] = None
+    zap_docker_image: str = "ghcr.io/zaproxy/zaproxy:stable"
+    zap_api_key: Optional[str] = None
+    zap_timeout_seconds: int = 300
+    zap_request_timeout_seconds: Optional[int] = None
+    zap_max_depth: Optional[int] = None
+    zap_scan_policy: Optional[str] = None
+    zap_docker_extra_hosts: Optional[str] = None  # comma-separated host:ip mappings
+    zap_base_url: Optional[str] = None
+    zap_host_port: Optional[int] = None
+    zap_keepalive_seconds: Optional[int] = None
+    zap_host_header: Optional[str] = None
     dast_allowed_hosts: Optional[str] = None
+    dast_deploy_script: Optional[str] = None
+    dast_default_auth_header: Optional[str] = None  # Format: "Header-Name: value"
+    dast_require_verification: bool = False
+    dast_verification_timeout: int = 5
     scan_max_active: Optional[int] = None
     scan_min_interval_seconds: Optional[int] = None
     dependency_health_use_llm: bool = True
+    dev_auth_bypass: bool = False
+    dev_auth_user_id: Optional[str] = None
+    dev_auth_email: Optional[str] = None
 
     if SettingsConfigDict is not None:
         _ENV_FILE = Path(__file__).resolve().parents[1] / ".env"

@@ -1,8 +1,8 @@
-# ScanGuard AI - Context-Aware Static Analysis Platform
+# BugBunny - Context-Aware Static Analysis Platform
 
 ## Vision
 
-**ScanGuard AI** transforms static code analysis by combining Semgrep with LLM intelligence to eliminate false positives and properly prioritize security findings - solving the #1 pain point that wastes developer time.
+**BugBunny** transforms static code analysis by combining Semgrep with LLM intelligence to eliminate false positives and properly prioritize security findings - solving the #1 pain point that wastes developer time.
 
 **Core Innovation**: Run Semgrep, then use AI to understand code context and filter out noise. Developers see only real issues, ranked by actual exploitability.
 
@@ -57,7 +57,7 @@ Static analysis tools like Semgrep are powerful but noisy:
 
 ## Key Differentiators
 
-| Capability | Semgrep Alone | ScanGuard AI |
+| Capability | Semgrep Alone | BugBunny |
 |------------|---------------|--------------|
 | Static code scanning | Yes | Yes |
 | Multi-language support | Yes | Yes |
@@ -1369,4 +1369,4 @@ OLLAMA_HOST=http://localhost:11434  # Local LLM fallback
 
 *Team CSIS - Unifonic AI Hackathon 2025*
 
-**ScanGuard AI: Static analysis that actually works.**
+**BugBunny: Static analysis that actually works.**

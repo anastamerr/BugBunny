@@ -1,3 +1,4 @@
+import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 
@@ -12,15 +13,39 @@ function severityClass(severity: string) {
 }
 
 export default function Bugs() {
-  const { data, isLoading } = useQuery({
+  const [query, setQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const { data, isLoading, error } = useQuery({
     queryKey: ["bugs"],
     queryFn: () => bugsApi.getAll(),
   });
 
+  const bugs = data || [];
+  const filtered = useMemo(() => {
+    const normalized = query.trim().toLowerCase();
+    return bugs.filter((bug) => {
+      if (statusFilter !== "all" && bug.status !== statusFilter) {
+        return false;
+      }
+      if (!normalized) return true;
+      const haystack = [
+        bug.title,
+        bug.bug_id,
+        bug.classified_component,
+        bug.assigned_team || "",
+        bug.classified_severity,
+        bug.status,
+      ]
+        .join(" ")
+        .toLowerCase();
+      return haystack.includes(normalized);
+    });
+  }, [bugs, query, statusFilter]);
+
   return (
     <div className="space-y-6">
       <div className="surface-solid p-6">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
           <div>
             <h1 className="text-2xl font-extrabold tracking-tight text-white">
               Bugs
@@ -29,64 +54,108 @@ export default function Bugs() {
               Automatically triaged and ordered by urgency.
             </p>
           </div>
-          <div className="badge">{(data || []).length} total</div>
+          <div className="flex flex-wrap items-center gap-2 text-xs text-white/60">
+            <span className="badge">{bugs.length} total</span>
+            <span>
+              Showing {filtered.length} {filtered.length === 1 ? "result" : "results"}
+            </span>
+          </div>
+        </div>
+
+        <div className="mt-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div className="flex-1">
+            <input
+              className="search-input w-full"
+              placeholder="Search by title, component, or team..."
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+            />
+          </div>
+          <div className="flex items-center gap-2">
+            <select
+              className="select"
+              value={statusFilter}
+              onChange={(event) => setStatusFilter(event.target.value)}
+            >
+              <option value="all">All statuses</option>
+              <option value="new">new</option>
+              <option value="triaged">triaged</option>
+              <option value="assigned">assigned</option>
+              <option value="resolved">resolved</option>
+            </select>
+            <button
+              type="button"
+              className="btn-ghost"
+              onClick={() => {
+                setQuery("");
+                setStatusFilter("all");
+              }}
+              disabled={!query && statusFilter === "all"}
+            >
+              Clear
+            </button>
+          </div>
         </div>
       </div>
 
       {isLoading && <div className="text-sm text-white/60">Loading...</div>}
 
-      <div className="surface-solid overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[860px] text-sm">
-            <thead className="bg-surface text-left text-xs font-semibold uppercase tracking-[0.2em] text-white/60">
-              <tr>
-                <th className="px-4 py-3">Title</th>
-                <th className="px-4 py-3">Component</th>
-                <th className="px-4 py-3">Severity</th>
-                <th className="px-4 py-3">Team</th>
-                <th className="px-4 py-3">Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {(data || []).map((bug) => (
-                <tr
-                  key={bug.id}
-                  className="border-t border-white/10 transition-colors duration-200 ease-fluid hover:bg-white/5"
-                >
-                  <td className="px-4 py-3 font-semibold text-white">
-                    <Link
-                      to={`/bugs/${bug.id}`}
-                      className="underline decoration-white/20 underline-offset-4 hover:decoration-neon-mint/60 hover:text-neon-mint"
-                    >
-                      {bug.title}
-                    </Link>
-                  </td>
-                  <td className="px-4 py-3 text-white/80">
-                    {bug.classified_component}
-                  </td>
-                  <td className="px-4 py-3">
-                    <span className={severityClass(bug.classified_severity)}>
-                      {bug.classified_severity}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 text-white/60">
-                    {bug.assigned_team || "n/a"}
-                  </td>
-                  <td className="px-4 py-3">
-                    <span className="badge">{bug.status}</span>
-                  </td>
-                </tr>
-              ))}
-              {(data || []).length === 0 && !isLoading && (
-                <tr>
-                  <td className="px-4 py-8 text-center text-white/60" colSpan={5}>
-                    No bugs yet.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
+      {error ? (
+        <div className="surface-solid p-4 text-sm text-rose-200">
+          {error instanceof Error ? error.message : "Unable to load bugs."}
         </div>
+      ) : null}
+
+      <div className="table-container">
+        <table className="table min-w-[860px]">
+          <thead>
+            <tr>
+              <th>Title</th>
+              <th>Component</th>
+              <th>Severity</th>
+              <th>Team</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filtered.map((bug) => (
+              <tr key={bug.id}>
+                <td className="font-semibold text-white">
+                  <Link
+                    to={`/bugs/${bug.id}`}
+                    className="underline decoration-white/20 underline-offset-4 hover:decoration-neon-mint/60 hover:text-neon-mint"
+                  >
+                    {bug.title}
+                  </Link>
+                </td>
+                <td>{bug.classified_component}</td>
+                <td>
+                  <span className={severityClass(bug.classified_severity)}>
+                    {bug.classified_severity}
+                  </span>
+                </td>
+                <td className="text-white/60">{bug.assigned_team || "n/a"}</td>
+                <td>
+                  <span className="badge">{bug.status}</span>
+                </td>
+              </tr>
+            ))}
+            {bugs.length === 0 && !isLoading && !error && (
+              <tr>
+                <td className="py-8 text-center text-white/60" colSpan={5}>
+                  No bugs yet.
+                </td>
+              </tr>
+            )}
+            {bugs.length > 0 && filtered.length === 0 && !isLoading && !error && (
+              <tr>
+                <td className="py-8 text-center text-white/60" colSpan={5}>
+                  No results match this filter.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
       </div>
     </div>
   );

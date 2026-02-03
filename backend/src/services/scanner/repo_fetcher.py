@@ -69,6 +69,23 @@ class RepoFetcher:
     async def cleanup(self, repo_path: Path) -> None:
         await asyncio.to_thread(shutil.rmtree, repo_path, True)
 
+    async def get_commit_sha(self, repo_path: Path) -> str | None:
+        cmd = [self.git_path, "-C", str(repo_path), "rev-parse", "HEAD"]
+        try:
+            output = await asyncio.to_thread(self._run_command_capture, cmd)
+        except Exception:
+            return None
+        sha = output.strip()
+        return sha if sha else None
+
+    async def checkout_commit(self, repo_path: Path, commit_sha: str) -> None:
+        """Checkout a specific commit SHA."""
+        cmd = [self.git_path, "-C", str(repo_path), "checkout", commit_sha]
+        try:
+            await asyncio.to_thread(self._run_command_capture, cmd)
+        except Exception as e:
+            raise RuntimeError(f"Failed to checkout commit {commit_sha}: {e}") from e
+
     def detect_languages(self, repo_path: Path) -> List[str]:
         languages, _ = self.analyze_repo(repo_path)
         return languages
@@ -129,6 +146,18 @@ class RepoFetcher:
                 message = message.replace(token, "***")
             detail = message or "Unknown git error"
             raise RuntimeError(f"Failed to clone repo {repo_url}: {detail}")
+
+    def _run_command_capture(self, cmd: List[str]) -> str:
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if result.returncode != 0:
+            message = (result.stderr or result.stdout or "").strip()
+            raise RuntimeError(message or "Command failed")
+        return result.stdout or ""
 
     def _should_skip(self, path: Path) -> bool:
         skip_dirs = {

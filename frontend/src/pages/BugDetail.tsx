@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useParams } from "react-router-dom";
 
 import { bugsApi } from "../api/bugs";
+import { BackLink } from "../components/BackLink";
 import type { BugReport } from "../types";
 
 type GitHubComment = {
@@ -65,7 +66,7 @@ function formatCorrelationMeta(meta: {
   const parts = [meta.status, meta.component, meta.severity]
     .map((item) => (typeof item === "string" ? item.trim() : ""))
     .filter(Boolean);
-  return parts.length ? parts.join(" · ") : "n/a";
+  return parts.length ? parts.join(" - ") : "n/a";
 }
 
 export default function BugDetail() {
@@ -120,6 +121,7 @@ export default function BugDetail() {
   if (!id) {
     return (
       <div className="space-y-6">
+        <BackLink to="/bugs" label="Back to Bugs" />
         <div className="surface-solid p-6">
           <h1 className="text-2xl font-extrabold tracking-tight text-white">Bug</h1>
           <p className="mt-1 text-sm text-white/60">Missing bug id.</p>
@@ -131,6 +133,7 @@ export default function BugDetail() {
   if (isLoading) {
     return (
       <div className="space-y-6">
+        <BackLink to="/bugs" label="Back to Bugs" />
         <div className="surface-solid p-6">
           <h1 className="text-2xl font-extrabold tracking-tight text-white">Bug</h1>
           <p className="mt-1 text-sm text-white/60">Loading...</p>
@@ -142,6 +145,7 @@ export default function BugDetail() {
   if (error || !bug) {
     return (
       <div className="space-y-6">
+        <BackLink to="/bugs" label="Back to Bugs" />
         <div className="surface-solid p-6">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
@@ -150,9 +154,7 @@ export default function BugDetail() {
               </h1>
               <p className="mt-1 text-sm text-white/60">Bug not found.</p>
             </div>
-            <Link to="/bugs" className="btn-ghost">
-              Back to Bugs
-            </Link>
+            <BackLink to="/bugs" label="Back to Bugs" className="btn-ghost" />
           </div>
         </div>
       </div>
@@ -164,6 +166,7 @@ export default function BugDetail() {
 
   return (
     <div className="space-y-6">
+      <BackLink to="/bugs" label="Back to Bugs" />
       <div className="surface-solid p-6">
         <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
           <div className="min-w-0">
@@ -182,6 +185,9 @@ export default function BugDetail() {
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
+            <Link to={`/chat?bug_id=${bug.id}`} className="btn-primary">
+              Ask AI
+            </Link>
             {githubUrl ? (
               <a
                 href={githubUrl}
@@ -192,9 +198,7 @@ export default function BugDetail() {
                 Open on GitHub
               </a>
             ) : null}
-            <Link to="/bugs" className="btn-ghost">
-              Back
-            </Link>
+            <BackLink to="/bugs" label="Back" className="btn-ghost" />
           </div>
         </div>
       </div>
@@ -290,7 +294,7 @@ export default function BugDetail() {
                   Resolution Notes
                 </div>
                 <textarea
-                  className="mt-2 min-h-[96px] w-full resize-y rounded-card border-2 border-white/10 bg-void px-4 py-3 text-sm text-white placeholder-white/30 outline-none transition-colors duration-200 ease-fluid focus:border-neon-mint"
+                  className="input-textarea mt-2 min-h-[96px] w-full"
                   name="resolution_notes"
                   placeholder="What fixed it? Links to PRs/runbooks/follow-ups..."
                   defaultValue={bug.resolution_notes || ""}
@@ -305,6 +309,16 @@ export default function BugDetail() {
               >
                 {updateBugMutation.isPending ? "Saving..." : "Save"}
               </button>
+              {updateBugMutation.isError ? (
+                <div className="text-sm text-rose-200">
+                  {updateBugMutation.error instanceof Error
+                    ? updateBugMutation.error.message
+                    : "Failed to save workflow."}
+                </div>
+              ) : null}
+              {updateBugMutation.isSuccess ? (
+                <div className="text-sm text-neon-mint">Saved.</div>
+              ) : null}
             </form>
           </div>
         </div>

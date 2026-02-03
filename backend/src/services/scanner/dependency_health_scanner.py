@@ -363,7 +363,7 @@ class DependencyHealthScanner:
 
     def _llm_system_prompt(self) -> str:
         return (
-            "You are ScanGuard AI, a dependency risk analyst.\n"
+            "You are BugBunny, a dependency risk analyst.\n"
             "Assess deprecated or yanked dependencies for operational risk.\n"
             "Return only valid JSON."
         )

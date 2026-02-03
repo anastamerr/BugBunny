@@ -2,16 +2,18 @@ from __future__ import annotations
 
 import asyncio
 import uuid
-from typing import List, Optional
-
-from ...integrations.pinecone_client import PineconeService
+from typing import TYPE_CHECKING, List, Optional
 from .types import FindingGroup, TriagedFinding
+
+
+if TYPE_CHECKING:
+    from ...integrations.pinecone_client import PineconeService
 
 
 class FindingAggregator:
     def __init__(
         self,
-        pinecone: Optional[PineconeService] = None,
+        pinecone: Optional["PineconeService"] = None,
         duplicate_threshold: float = 0.9,
     ) -> None:
         self.pinecone = pinecone
@@ -19,12 +21,13 @@ class FindingAggregator:
 
     async def process(self, findings: List[TriagedFinding]) -> List[TriagedFinding]:
         filtered = self._filter_false_positives(findings)
+        false_positives = [finding for finding in findings if finding.is_false_positive]
         _groups = self._group_related(filtered)
         deduped = await self._deduplicate(filtered)
         for finding in deduped:
             finding.priority_score = self.calculate_priority(finding)
         return sorted(
-            deduped,
+            deduped + false_positives,
             key=lambda item: item.priority_score or 0,
             reverse=True,
         )

@@ -101,11 +101,13 @@ def _normalize_target_url(value: str) -> str:
         raise ValueError("target_url must include a host")
     if parsed.username or parsed.password:
         raise ValueError("target_url must not include credentials")
-    if _is_blocked_host(parsed.hostname):
-        raise ValueError("target_url must be a public http(s) address")
     allowlist = _parse_allowlist(get_settings().dast_allowed_hosts)
-    if allowlist and not _is_allowed_host(parsed.hostname, allowlist):
-        raise ValueError("target_url host is not allowed")
+    if allowlist:
+        if not _is_allowed_host(parsed.hostname, allowlist):
+            raise ValueError("target_url host is not allowed")
+    else:
+        if _is_blocked_host(parsed.hostname):
+            raise ValueError("target_url must be a public http(s) address")
     return trimmed
 
 
@@ -113,22 +115,33 @@ class ScanCreate(BaseModel):
     repo_url: Optional[str] = None
     repo_id: Optional[uuid.UUID] = None
     branch: Optional[str] = "main"
+    commit_sha: Optional[str] = None
     scan_type: ScanType = ScanType.sast
     dependency_health_enabled: bool = True
     target_url: Optional[str] = None
     dast_consent: bool = False
+    dast_auth_headers: Optional[dict[str, str]] = None
+    dast_cookies: Optional[str] = None
 
     @model_validator(mode="after")
     def _require_repo(self) -> "ScanCreate":
+        settings = get_settings()
         if self.scan_type in {ScanType.sast, ScanType.both}:
             if not self.repo_url and not self.repo_id:
                 raise ValueError("repo_url or repo_id is required for SAST scans")
+        # Allow 'both' scans if either a deploy script is configured OR a manual target_url is provided
+        if self.scan_type == ScanType.both and not settings.dast_deploy_script and not self.target_url:
+            raise ValueError(
+                "DAST verification for 'both' scans requires either DAST_DEPLOY_SCRIPT or a manual target_url"
+            )
         if self.scan_type in {ScanType.dast, ScanType.both}:
             if not self.target_url:
-                raise ValueError("target_url is required for DAST scans")
+                if self.scan_type == ScanType.dast:
+                    raise ValueError("target_url is required for DAST scans")
             if not self.dast_consent:
                 raise ValueError("dast_consent is required for DAST scans")
-            self.target_url = _normalize_target_url(self.target_url)
+            if self.target_url:
+                self.target_url = _normalize_target_url(self.target_url)
         if self.scan_type == ScanType.dast:
             self.dependency_health_enabled = False
         return self
@@ -138,11 +151,15 @@ class ScanUpdate(BaseModel):
     status: Optional[ScanStatus] = None
     scan_type: Optional[ScanType] = None
     dependency_health_enabled: Optional[bool] = None
+    is_paused: Optional[bool] = None
     target_url: Optional[str] = None
     trigger: Optional[ScanTrigger] = None
+    phase: Optional[str] = None
+    phase_message: Optional[str] = None
     total_findings: Optional[int] = None
     filtered_findings: Optional[int] = None
     dast_findings: Optional[int] = None
+    dast_confirmed_count: Optional[int] = None
     error_message: Optional[str] = None
     pr_number: Optional[int] = None
     pr_url: Optional[str] = None
@@ -165,10 +182,15 @@ class ScanRead(BaseModel):
     dependency_health_enabled: bool
     target_url: Optional[str] = None
     status: ScanStatus
+    phase: Optional[str] = None
+    phase_message: Optional[str] = None
+    is_paused: bool
     trigger: ScanTrigger
     total_findings: int
     filtered_findings: int
     dast_findings: int
+    dast_confirmed_count: int = 0
+    dast_verification_status: str = "not_applicable"
     error_message: Optional[str] = None
     pr_number: Optional[int] = None
     pr_url: Optional[str] = None

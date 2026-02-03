@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 import uuid
 
 from sqlalchemy import (
@@ -59,6 +59,10 @@ class Finding(Base):
     is_test_file = Column(Boolean, nullable=False, default=False)
     is_generated = Column(Boolean, nullable=False, default=False)
     imports = Column(JSON, nullable=True)
+    sast_vuln_type = Column(String, nullable=True)
+    sast_endpoint = Column(String, nullable=True)
+    sast_http_method = Column(String, nullable=True)
+    sast_parameter = Column(String, nullable=True)
     matched_at = Column(String, nullable=True)
     endpoint = Column(String, nullable=True)
     curl_command = Column(Text, nullable=True)
@@ -68,6 +72,26 @@ class Finding(Base):
     cve_ids = Column(JSON, nullable=True)
     cwe_ids = Column(JSON, nullable=True)
     confirmed_exploitable = Column(Boolean, nullable=False, default=False)
+
+    # DAST verification fields
+    dast_verified = Column(Boolean, nullable=False, default=False)
+    dast_verification_status = Column(
+        Enum(
+            "not_run",
+            "confirmed_exploitable",
+            "not_confirmed",
+            "inconclusive",
+            "attempted_not_reproduced",
+            "blocked_auth_required",
+            "blocked_rate_limit",
+            "inconclusive_mapping",
+            "bad_request",
+            "error_timeout",
+            "error_tooling",
+            name="dast_verification_status",
+        ),
+        nullable=True,
+    )
 
     # Reachability analysis fields
     is_reachable = Column(Boolean, nullable=False, default=True)
@@ -82,11 +106,26 @@ class Finding(Base):
         default="new",
     )
     priority_score = Column(Integer, nullable=True)
+    dedupe_key = Column(String, nullable=True, index=True)
 
-    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    fix_status = Column(
+        Enum("generated", "pr_opened", "failed", name="fix_status"),
+        nullable=True,
+    )
+    fix_summary = Column(Text, nullable=True)
+    fix_patch = Column(Text, nullable=True)
+    fix_pr_url = Column(String, nullable=True)
+    fix_branch = Column(String, nullable=True)
+    fix_error = Column(Text, nullable=True)
+    fix_confidence = Column(Float, nullable=True)
+    fix_generated_at = Column(DateTime, nullable=True)
+
+    created_at = Column(
+        DateTime, nullable=False, default=lambda: datetime.now(timezone.utc)
+    )
     updated_at = Column(
         DateTime,
         nullable=False,
-        default=datetime.utcnow,
-        onupdate=datetime.utcnow,
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
     )

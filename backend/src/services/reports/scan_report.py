@@ -105,7 +105,7 @@ def build_scan_report_pdf(
         rightMargin=40,
         topMargin=50,
         bottomMargin=40,
-        title="ScanGuard AI Report",
+        title="BugBunny Report",
     )
 
     styles = _build_styles()
@@ -145,6 +145,9 @@ def build_scan_report_pdf(
     story.append(Spacer(1, 12))
     story.append(Paragraph("AI Decisioning Summary", styles["SectionHeading"]))
     story.append(Paragraph(_ai_summary_text(), styles["Body"]))
+    story.append(Spacer(1, 10))
+    story.append(Paragraph("Assessment Criteria", styles["SectionHeading"]))
+    story.append(Paragraph(_assessment_criteria_text(), styles["Body"]))
     story.append(Spacer(1, 16))
 
     # Critical Findings section
@@ -157,7 +160,7 @@ def build_scan_report_pdf(
     # Remediation Priorities section
     story.append(HorizontalRule(page_width))
     story.append(Spacer(1, 12))
-    story.append(Paragraph("Remediation Priorities", styles["SectionHeading"]))
+    story.append(Paragraph("Remediation Priorities (Ordered by Criticality)", styles["SectionHeading"]))
     story.extend(_build_remediation_priorities(findings, styles, page_width))
     story.append(Spacer(1, 16))
 
@@ -264,7 +267,7 @@ def _build_header(
     blocks = []
 
     # Title and subtitle
-    blocks.append(Paragraph("ScanGuard AI", styles["ReportTitle"]))
+    blocks.append(Paragraph("BugBunny", styles["ReportTitle"]))
     blocks.append(
         Paragraph(
             f"Security Scan Report &bull; Generated {_format_datetime(generated_at)}",
@@ -404,6 +407,17 @@ def _ai_summary_text() -> str:
     )
 
 
+def _assessment_criteria_text() -> str:
+    return (
+        "- Exploitability and input controllability (can an attacker influence the data flow?)<br/>"
+        "- Reachability signals (is the code reachable in production paths?)<br/>"
+        "- Severity of impact (data loss, auth bypass, RCE, etc.)<br/>"
+        "- Environmental exposure (public endpoints, auth-required, internal-only)<br/>"
+        "- Dynamic verification (DAST confirmation or evidence, when available)<br/>"
+        "- AI confidence and supporting context in code snippets and call paths"
+    )
+
+
 def _build_insights_section(
     insights: ReportInsights, styles: dict[str, ParagraphStyle]
 ) -> list:
@@ -472,7 +486,7 @@ def _build_critical_findings(
     findings: Sequence[Finding], styles: dict[str, ParagraphStyle], page_width: float
 ) -> list:
     critical = [finding for finding in findings if _is_critical(finding)]
-    critical.sort(key=_priority_sort_key, reverse=True)
+    critical.sort(key=_criticality_sort_key, reverse=True)
     if not critical:
         return [
             Paragraph(
@@ -491,6 +505,7 @@ def _build_critical_findings(
         exploitability = _fallback_text(finding.exploitability, "Exploitability notes not available.")
         remediation = _fallback_text(finding.remediation, "Remediation guidance not available.")
         reachability = _reachability_label(finding)
+        criticality = _criticality_rationale(finding)
 
         # Finding card with left border color
         finding_content = [
@@ -498,7 +513,15 @@ def _build_critical_findings(
             Spacer(1, 4),
             _build_finding_meta(severity, priority, finding.finding_type, location, reachability, styles),
             Spacer(1, 6),
-            Paragraph(f"<b>AI Reasoning:</b> {_clean_text(reasoning, 400)}", styles["Body"]),
+            Paragraph(
+                f"<b>LLM criticality rationale:</b> {_clean_text(reasoning, 400)}",
+                styles["Body"],
+            ),
+            Spacer(1, 3),
+            Paragraph(
+                f"<b>Criticality signals:</b> {_clean_text(criticality, 260)}",
+                styles["BodySmall"],
+            ),
             Spacer(1, 4),
             Paragraph(f"<b>Exploitability:</b> {_clean_text(exploitability, 300)}", styles["Body"]),
             Spacer(1, 4),
@@ -541,8 +564,12 @@ def _build_finding_meta(
 def _build_remediation_priorities(
     findings: Sequence[Finding], styles: dict[str, ParagraphStyle], page_width: float
 ) -> list:
-    ordered = sorted(findings, key=_priority_sort_key, reverse=True)
-    ordered = [finding for finding in ordered if finding.priority_score is not None and finding.priority_score > 0]
+    ordered = sorted(findings, key=_criticality_sort_key, reverse=True)
+    ordered = [
+        finding
+        for finding in ordered
+        if finding.priority_score is not None and finding.priority_score > 0
+    ]
 
     if not ordered:
         return [
@@ -729,6 +756,48 @@ def _priority_sort_key(finding: Finding) -> tuple[int, int]:
     return (priority, severity_rank.get(severity, 0))
 
 
+def _criticality_sort_key(finding: Finding) -> tuple[int, int, float]:
+    severity = _severity_label(finding).lower()
+    severity_rank = {
+        "critical": 5,
+        "high": 4,
+        "medium": 3,
+        "low": 2,
+        "info": 1,
+    }.get(severity, 0)
+    priority = getattr(finding, "priority_score", None) or 0
+    confidence = float(getattr(finding, "ai_confidence", 0.0) or 0.0)
+    return (severity_rank, priority, confidence)
+
+
+def _criticality_rationale(finding: Finding) -> str:
+    parts: list[str] = []
+    severity = _severity_label(finding).lower()
+    if severity:
+        parts.append(f"AI severity: {severity}")
+    ai_confidence = getattr(finding, "ai_confidence", None)
+    if ai_confidence is not None:
+        parts.append(f"confidence: {int(round(ai_confidence * 100))}%")
+    priority_score = getattr(finding, "priority_score", None)
+    if priority_score is not None:
+        parts.append(f"priority score: {priority_score}")
+    dast_status = getattr(finding, "dast_verification_status", None)
+    if dast_status and dast_status != "not_run":
+        parts.append(f"DAST: {dast_status.replace('_', ' ')}")
+    exploitability = getattr(finding, "exploitability", None)
+    if exploitability:
+        parts.append(f"exploitability: {exploitability}")
+    is_reachable = getattr(finding, "is_reachable", None)
+    if is_reachable is not None:
+        if is_reachable:
+            parts.append("reachability: reachable")
+        else:
+            parts.append("reachability: not reachable")
+    if not parts:
+        return "Critical due to severity and contextual signals."
+    return "; ".join(parts)
+
+
 def _priority_label(finding: Finding) -> str:
     return str(finding.priority_score) if finding.priority_score is not None else "n/a"
 
@@ -809,7 +878,7 @@ def _add_page_elements(canvas, doc, generated_at: datetime, is_first: bool = Tru
     if not is_first:
         canvas.setFont("Helvetica-Bold", 10)
         canvas.setFillColor(COLORS["text_secondary"])
-        canvas.drawString(40, doc.pagesize[1] - 30, "ScanGuard AI Report")
+        canvas.drawString(40, doc.pagesize[1] - 30, "BugBunny Report")
 
     # Footer with page number and branding
     canvas.setFont("Helvetica", 8)

@@ -1,4 +1,4 @@
-# ScanGuard AI: Context-Aware Static Analysis Platform
+# BugBunny: Context-Aware Static Analysis Platform
 
 ## Team: CSIS
 
@@ -6,7 +6,7 @@
 
 ## Executive Summary
 
-ScanGuard AI reduces static analysis noise by running Semgrep first and then using LLMs to understand code context, filter false positives, and adjust severity based on exploitability. Teams focus on the real issues instead of alert fatigue.
+BugBunny reduces static analysis noise by running Semgrep first and then using LLMs to understand code context, filter false positives, and adjust severity based on exploitability. Teams focus on the real issues instead of alert fatigue.
 
 ---
 
@@ -32,7 +32,7 @@ ScanGuard AI reduces static analysis noise by running Semgrep first and then usi
 
 ---
 
-## Our Solution: ScanGuard AI
+## Our Solution: BugBunny
 
 ### Core Value Proposition
 
@@ -61,7 +61,7 @@ A context-aware static analysis pipeline that:
 
 ## Expected Impact & Metrics
 
-| Metric | Without ScanGuard AI | With ScanGuard AI | Improvement |
+| Metric | Without BugBunny | With BugBunny | Improvement |
 |--------|----------------------|------------------|-------------|
 | False positive rate | 70-90% | < 30% | 70%+ reduction |
 | Mean time to triage | Hours | Minutes | 80%+ faster |
@@ -90,7 +90,7 @@ A context-aware static analysis pipeline that:
 
 ## Conclusion
 
-ScanGuard AI makes static analysis actionable by eliminating noise and surfacing the most exploitable findings first.
+BugBunny makes static analysis actionable by eliminating noise and surfacing the most exploitable findings first.
 
 ---
 

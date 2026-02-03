@@ -1,5 +1,5 @@
 import { api } from "./client";
-import type { Finding, Scan } from "../types";
+import type { AutoFixResponse, Finding, Scan } from "../types";
 
 export const scansApi = {
   create: async (payload: {
@@ -10,6 +10,8 @@ export const scansApi = {
     dependency_health_enabled?: boolean;
     target_url?: string;
     dast_consent?: boolean;
+    dast_auth_headers?: Record<string, string>;
+    dast_cookies?: string;
   }) => {
     const { data } = await api.post<Scan>("/api/scans", payload);
     return data;
@@ -23,6 +25,20 @@ export const scansApi = {
   getById: async (id: string) => {
     const { data } = await api.get<Scan>(`/api/scans/${id}`);
     return data;
+  },
+
+  pause: async (scanId: string) => {
+    const { data } = await api.post<Scan>(`/api/scans/${scanId}/pause`);
+    return data;
+  },
+
+  resume: async (scanId: string) => {
+    const { data } = await api.post<Scan>(`/api/scans/${scanId}/resume`);
+    return data;
+  },
+
+  delete: async (scanId: string) => {
+    await api.delete(`/api/scans/${scanId}`);
   },
 
   getFindings: async (
@@ -47,11 +63,26 @@ export const scansApi = {
     return data;
   },
 
+  autofixFinding: async (
+    findingId: string,
+    payload: { create_pr?: boolean; regenerate?: boolean } = {},
+  ) => {
+    const { data } = await api.post<AutoFixResponse>(
+      `/api/findings/${findingId}/autofix`,
+      payload,
+    );
+    return data;
+  },
+
   downloadReport: async (scanId: string) => {
     const { data } = await api.get<Blob>(`/api/scans/${scanId}/report`, {
       responseType: "blob",
     });
     return data;
+  },
+
+  deleteReport: async (scanId: string) => {
+    await api.delete(`/api/scans/${scanId}/report`);
   },
 
   listFindings: async (params?: {

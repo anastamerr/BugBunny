@@ -1,4 +1,4 @@
-# ScanGuard AI Manual (Runbook)
+# BugBunny Manual (Runbook)
 
 This file explains how to bring up the **backend + frontend** together for local development and for a demo of context-aware Semgrep scans.
 
@@ -32,9 +32,10 @@ Reference template: `backend/.env.example` (or `.env.example`)
 
 Optional DAST settings:
 - `DAST_ALLOWED_HOSTS` (comma-separated allowed host suffixes)
-- `NUCLEI_TEMPLATES_PATH`, `NUCLEI_SEVERITIES`, `NUCLEI_RATE_LIMIT`
-- `NUCLEI_TAGS`, `NUCLEI_EXCLUDE_TAGS`, `NUCLEI_PROTOCOLS`
-- `NUCLEI_REQUEST_TIMEOUT_SECONDS`
+- `ZAP_DOCKER_IMAGE`, `ZAP_API_KEY`, `ZAP_TIMEOUT_SECONDS`
+- `ZAP_REQUEST_TIMEOUT_SECONDS`, `ZAP_MAX_DEPTH`, `ZAP_SCAN_POLICY`
+- `ZAP_BASE_URL`, `ZAP_HOST_PORT`, `ZAP_KEEPALIVE_SECONDS`, `ZAP_HOST_HEADER`
+Note: DAST runs OWASP ZAP in Docker; ensure a Docker daemon is available.
 
 Optional scan limits:
 - `SCAN_MAX_ACTIVE` (max in-flight scans per user)
@@ -60,6 +61,7 @@ cd backend
 cd backend
 .\.venv\Scripts\python -m uvicorn src.main:asgi_app --port 8000
 ```
+Note: use `asgi_app` (not `app`) so Socket.IO is served at `/ws`.
 
 Quick health check:
 
@@ -128,6 +130,67 @@ irm -Method Post http://localhost:8000/api/scans `
   -Body '{"repo_url":"https://github.com/OWASP/WebGoat","branch":"main"}'
 ```
 
+## SAST→DAST Verification Checklist (Local)
+
+Use this checklist to validate that Semgrep findings are verified with ZAP reachability signals.
+
+1) **Run Semgrep locally (optional sanity check)**
+
+```powershell
+semgrep --config=auto --json path\to\repo
+```
+
+2) **Ensure ZAP is available (Docker)**
+
+ZAP is started automatically by the backend. If you want to run it manually:
+
+```powershell
+docker run -d --rm -p 8090:8080 ghcr.io/zaproxy/zaproxy:stable `
+  zap.sh -daemon -host 0.0.0.0 -port 8080 -config api.disablekey=true
+```
+
+3) **Choose the correct target URL**
+
+- If the target runs on your host machine, use:
+  - **macOS/Windows**: `http://host.docker.internal:<port>`
+  - **Linux**: `http://host.docker.internal:<port>` (the runner adds host-gateway)
+- If the target runs in Docker Compose, use the service name:
+  - `http://<service-name>:<port>`
+
+4) **Trigger a combined scan**
+
+```powershell
+irm -Method Post http://localhost:8000/api/scans `
+  -ContentType "application/json" `
+  -Body '{\"repo_url\":\"https://github.com/OWASP/WebGoat\",\"branch\":\"main\",\"scan_type\":\"both\",\"target_url\":\"http://host.docker.internal:8080\"}'
+```
+
+5) **Verify reachability + exploitability signals**
+
+Check findings after the scan completes:
+
+```powershell
+irm http://localhost:8000/api/scans/<scan_id>/findings
+```
+
+Each SAST finding should include:
+- `dast_verified=true`
+- `dast_verification_status` (confirmed_exploitable / attempted_not_reproduced / blocked_auth_required / etc.)
+- `matched_at`, `endpoint`, `evidence`, and `curl_command`
+- `reachability_reason` (e.g., “ZAP spider discovered the endpoint…”)
+
+6) **Auth-gated targets**
+
+Provide auth headers or cookies when creating a scan:
+
+```powershell
+irm -Method Post http://localhost:8000/api/scans `
+  -ContentType "application/json" `
+  -Body '{\"repo_url\":\"https://github.com/OWASP/WebGoat\",\"branch\":\"main\",\"scan_type\":\"both\",\"target_url\":\"http://host.docker.internal:8080\",\"dast_consent\":true,\"dast_auth_headers\":{\"Authorization\":\"Bearer <token>\"}}'
+```
+
+If ZAP encounters 401/403 responses, findings will show `blocked_auth_required`.
+
 ## 7) Common checks
 
 - Backend health: `GET /api/health`
@@ -136,6 +199,26 @@ irm -Method Post http://localhost:8000/api/scans `
 - Findings list: `GET /api/findings`
 - Bugs list (legacy): `GET /api/bugs`
 - Chat: `POST /api/chat`
+
+## 8) Auto-fix previews + PRs
+
+Auto-fix requires a GitHub token with repo access (set in Profile or backend env).
+
+Preview a patch:
+
+```powershell
+irm -Method Post http://localhost:8000/api/findings/<finding_id>/autofix `
+  -ContentType "application/json" `
+  -Body '{\"create_pr\": false}'
+```
+
+Open a PR:
+
+```powershell
+irm -Method Post http://localhost:8000/api/findings/<finding_id>/autofix `
+  -ContentType "application/json" `
+  -Body '{\"create_pr\": true}'
+```
 
 ## Troubleshooting
 

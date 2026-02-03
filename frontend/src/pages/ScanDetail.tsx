@@ -1,10 +1,16 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
+import { useVirtualizer } from "@tanstack/react-virtual";
 
+import { ApiError } from "../api/errors";
 import { scansApi } from "../api/scans";
+import { BackLink } from "../components/BackLink";
+import { ConfirmDialog } from "../components/ConfirmDialog";
 import { FindingCard } from "../components/FindingCard";
+import { groupFindingsForDisplay } from "../utils/dastGrouping";
 import type { Finding, Scan } from "../types";
+import { pushToast } from "../components/feedback/toastBus";
 
 function statusClass(status: Scan["status"]) {
   switch (status) {
@@ -29,6 +35,11 @@ function formatDate(value?: string) {
   return Number.isNaN(dt.getTime()) ? "n/a" : dt.toLocaleString();
 }
 
+function formatClock(value?: Date | null) {
+  if (!value) return "n/a";
+  return value.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
+
 function formatReduction(scan: Scan) {
   if (!scan.total_findings) return "No findings yet";
   const ratio =
@@ -36,7 +47,7 @@ function formatReduction(scan: Scan) {
       ? 1 - scan.filtered_findings / scan.total_findings
       : 0;
   const pct = Math.round(Math.max(0, Math.min(1, ratio)) * 100);
-  return `${scan.total_findings} -> ${scan.filtered_findings} (${pct}% filtered)`;
+  return `${scan.total_findings} to ${scan.filtered_findings} (${pct}% filtered)`;
 }
 
 function shortSha(value?: string | null) {
@@ -50,14 +61,70 @@ function formatList(values?: string[] | null, emptyLabel = "none") {
   return values.join(", ");
 }
 
+const PHASE_LABELS: Record<string, string> = {
+  "sast.clone": "SAST - Cloning",
+  "sast.scan": "SAST - Semgrep",
+  "sast.analyze": "SAST - AI triage",
+  "dast.deploy": "DAST - Deploy",
+  "dast.verify": "DAST - Verification",
+  "dast.spider": "DAST - Spider",
+  "dast.active_scan": "DAST - Active scan",
+  "dast.alerts": "DAST - Alerts",
+  "dast.targeted": "DAST - Targeted checks",
+  correlation: "Correlation",
+  completed: "Completed",
+  failed: "Failed",
+};
+
+const DAST_VERIFICATION_LABELS: Record<string, string> = {
+  verified: "DAST verified",
+  unverified_url: "DAST unverified URL",
+  commit_mismatch: "DAST commit mismatch",
+  verification_error: "DAST verification error",
+  not_applicable: "DAST not applicable",
+};
+
+const DAST_VERIFICATION_STYLES: Record<string, string> = {
+  verified: "badge border-neon-mint/40 bg-neon-mint/10 text-neon-mint",
+  unverified_url: "badge border-amber-400/40 bg-amber-400/10 text-amber-200",
+  commit_mismatch: "badge border-rose-400/40 bg-rose-400/10 text-rose-200",
+  verification_error: "badge border-rose-400/40 bg-rose-400/10 text-rose-200",
+};
+
+function formatPhase(value?: string | null) {
+  if (!value) return null;
+  return PHASE_LABELS[value] || value.replace(/[_\.]/g, " ");
+}
+
+function getDastVerificationBadge(value?: string | null) {
+  if (!value || value === "not_applicable") return null;
+  return {
+    label: DAST_VERIFICATION_LABELS[value] || `DAST ${value.replace(/[_\.]/g, " ")}`,
+    className: DAST_VERIFICATION_STYLES[value] || "badge",
+  };
+}
+
 export default function ScanDetail() {
   const { id } = useParams();
   const queryClient = useQueryClient();
   const [includeFalsePositives, setIncludeFalsePositives] = useState(false);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
   const [updateError, setUpdateError] = useState<string | null>(null);
+  const [autoFixing, setAutoFixing] = useState<{
+    id: string;
+    action: "preview" | "pr";
+  } | null>(null);
+  const [autoFixErrors, setAutoFixErrors] = useState<
+    Record<string, string | null>
+  >({});
   const [isDownloadingReport, setIsDownloadingReport] = useState(false);
   const [reportError, setReportError] = useState<string | null>(null);
+  const [reportStatusMessage, setReportStatusMessage] = useState<string | null>(null);
+  const [pauseError, setPauseError] = useState<string | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
+  const [lastRefreshedAt, setLastRefreshedAt] = useState<Date | null>(null);
+  const navigate = useNavigate();
 
   const {
     data: scan,
@@ -73,6 +140,9 @@ export default function ScanDetail() {
       ["pending", "cloning", "scanning", "analyzing"].includes(query.state.data.status)
         ? 8000
         : false,
+    onSuccess: () => {
+      setLastRefreshedAt(new Date());
+    },
   });
 
   const {
@@ -91,6 +161,9 @@ export default function ScanDetail() {
       scan && ["pending", "cloning", "scanning", "analyzing"].includes(scan.status)
         ? 8000
         : false,
+    onSuccess: () => {
+      setLastRefreshedAt(new Date());
+    },
   });
 
   const updateFinding = useMutation({
@@ -113,10 +186,112 @@ export default function ScanDetail() {
     },
   });
 
+  const autofixFinding = useMutation({
+    mutationFn: async (payload: {
+      id: string;
+      createPr: boolean;
+      regenerate?: boolean;
+    }) =>
+      scansApi.autofixFinding(payload.id, {
+        create_pr: payload.createPr,
+        regenerate: payload.regenerate,
+      }),
+    onMutate: ({ id: findingId, createPr }) => {
+      setAutoFixing({ id: findingId, action: createPr ? "pr" : "preview" });
+      setAutoFixErrors((prev) => ({ ...prev, [findingId]: null }));
+    },
+    onSuccess: (data) => {
+      if (data.error) {
+        setAutoFixErrors((prev) => ({
+          ...prev,
+          [data.finding.id]: data.error ?? null,
+        }));
+      }
+    },
+    onError: (err, payload) => {
+      setAutoFixErrors((prev) => ({
+        ...prev,
+        [payload.id]:
+          err instanceof Error ? err.message : "Failed to generate auto-fix.",
+      }));
+    },
+    onSettled: async () => {
+      setAutoFixing(null);
+      await queryClient.invalidateQueries({ queryKey: ["findings"] });
+    },
+  });
+
+  const pauseScan = useMutation({
+    mutationFn: async (action: "pause" | "resume") => {
+      if (!id) throw new Error("Missing scan id.");
+      return action === "pause" ? scansApi.pause(id) : scansApi.resume(id);
+    },
+    onMutate: () => {
+      setPauseError(null);
+    },
+    onError: (err) => {
+      setPauseError(
+        err instanceof Error ? err.message : "Failed to update scan state.",
+      );
+    },
+    onSettled: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["scans"] });
+      if (id) {
+        await queryClient.invalidateQueries({ queryKey: ["scans", id] });
+      }
+    },
+  });
+
+  const deleteScan = useMutation({
+    mutationFn: async () => {
+      if (!id) throw new Error("Missing scan id.");
+      await scansApi.delete(id);
+    },
+    onMutate: () => {
+      setDeleteError(null);
+    },
+    onError: (err) => {
+      setDeleteError(
+        err instanceof Error ? err.message : "Failed to delete scan.",
+      );
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["scans"] });
+      pushToast({
+        title: "Scan deleted",
+        message: "The scan and its findings were removed.",
+        tone: "success",
+        duration: 4000,
+      });
+      navigate("/scans");
+    },
+  });
+
+  const regenerateReport = useMutation({
+    mutationFn: async () => {
+      if (!scan) throw new Error("Missing scan details.");
+      await scansApi.deleteReport(scan.id);
+    },
+    onMutate: () => {
+      setReportError(null);
+      setReportStatusMessage(null);
+    },
+    onError: (err) => {
+      setReportError(
+        err instanceof Error ? err.message : "Failed to regenerate report.",
+      );
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["scans", id] });
+      setReportStatusMessage("Report was cleared. Generating a new report now.");
+    },
+  });
+
   const handleDownloadReport = async () => {
     if (!scan) return;
     setIsDownloadingReport(true);
     setReportError(null);
+    setReportStatusMessage(null);
     try {
       const blob = await scansApi.downloadReport(scan.id);
       const url = window.URL.createObjectURL(blob);
@@ -128,12 +303,35 @@ export default function ScanDetail() {
       link.remove();
       window.URL.revokeObjectURL(url);
     } catch (err) {
+      if (err instanceof ApiError && err.status === 409) {
+        setReportStatusMessage("Report missing from storage. Regenerate to restore.");
+      }
       setReportError(
         err instanceof Error ? err.message : "Failed to generate PDF report."
       );
     } finally {
       setIsDownloadingReport(false);
     }
+  };
+
+  const handleRegenerateReport = async () => {
+    try {
+      await regenerateReport.mutateAsync();
+      await handleDownloadReport();
+      pushToast({
+        title: "Report regenerated",
+        message: "A new PDF report has been generated.",
+        tone: "success",
+        duration: 4000,
+      });
+    } catch {
+      // Errors handled in mutation / download handler.
+    }
+  };
+
+  const handleRefresh = async () => {
+    await Promise.all([refetchScan(), refetchFindings()]);
+    setLastRefreshedAt(new Date());
   };
 
   const stats = useMemo(() => {
@@ -146,6 +344,10 @@ export default function ScanDetail() {
 
   const isDastEnabled = scan?.scan_type !== "sast";
   const headline = scan?.repo_url || scan?.target_url || "DAST scan";
+  const phaseLabel = formatPhase(scan?.phase);
+  const dastVerificationBadge = getDastVerificationBadge(
+    scan?.dast_verification_status,
+  );
 
   const telemetry = useMemo(() => {
     const detectedLanguages = formatList(
@@ -194,6 +396,61 @@ export default function ScanDetail() {
     findingsError instanceof Error
       ? findingsError.message
       : "Unable to load findings.";
+  const isAuthError = scanError instanceof ApiError && scanError.status === 401;
+  const { items: groupedFindings, rawDastCount, groupedDastCount } = useMemo(
+    () => groupFindingsForDisplay(findings ?? []),
+    [findings],
+  );
+  const rawFindingsCount = (findings || []).length;
+  const groupedFindingsCount = groupedFindings.length;
+  const hasGroupedDast = rawDastCount > 0 && groupedDastCount > 0;
+  const findingsSummary = hasGroupedDast
+    ? `${groupedFindingsCount} grouped findings from ${rawDastCount} raw alerts`
+    : `${groupedFindingsCount} findings`;
+  const enableVirtualList = groupedFindingsCount > 40;
+  const listParentRef = useRef<HTMLDivElement | null>(null);
+  const rowVirtualizer = useVirtualizer({
+    count: groupedFindingsCount,
+    getScrollElement: () => listParentRef.current,
+    estimateSize: () => 320,
+    overscan: 6,
+  });
+
+  const renderFindingCard = (finding: Finding) => (
+    <FindingCard
+      key={finding.id}
+      finding={finding}
+      isUpdating={updateFinding.isPending && updatingId === finding.id}
+      isAutoFixing={autofixFinding.isPending && autoFixing?.id === finding.id}
+      autoFixAction={autoFixing?.id === finding.id ? autoFixing.action : null}
+      autoFixError={autoFixErrors[finding.id] ?? null}
+      onUpdateStatus={(findingId, status) =>
+        updateFinding.mutate({ id: findingId, status })
+      }
+      onAutoFix={(findingId, options) =>
+        autofixFinding.mutate({
+          id: findingId,
+          createPr: options.createPr,
+          regenerate: options.regenerate,
+        })
+      }
+    />
+  );
+  const reportMissing = Boolean(scan?.report_generated_at && !scan?.report_url);
+  const reportReady = Boolean(scan?.report_url);
+  const reportStatus =
+    scan?.status === "completed"
+      ? reportMissing
+        ? "Report missing from storage. Regenerate to restore."
+        : reportReady
+          ? `Report ready (generated ${formatDate(scan.report_generated_at)})`
+          : "Report can be generated after review"
+      : "Report available after scan completes";
+  const isActiveScan = Boolean(
+    scan &&
+      ["pending", "cloning", "scanning", "analyzing"].includes(scan.status),
+  );
+  const canDownloadReport = scan?.status === "completed" && !reportMissing;
 
   if (!id) {
     return (
@@ -278,6 +535,7 @@ export default function ScanDetail() {
   if (scanError || !scan) {
     return (
       <div className="space-y-6">
+        <BackLink to="/scans" label="Back to Scans" />
         <div className="surface-solid p-6">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
@@ -287,6 +545,11 @@ export default function ScanDetail() {
               <p className="mt-1 text-sm text-white/60">
                 {scanError ? scanErrorMessage : "Scan not found."}
               </p>
+              {isAuthError ? (
+                <p className="mt-2 text-xs text-rose-200">
+                  Sign in to view this scan.
+                </p>
+              ) : null}
             </div>
             <div className="flex flex-wrap items-center gap-2">
               {scanError ? (
@@ -298,9 +561,7 @@ export default function ScanDetail() {
                   Retry
                 </button>
               ) : null}
-              <Link to="/scans" className="btn-ghost">
-                Back to Scans
-              </Link>
+              <BackLink to="/scans" label="Back to Scans" className="btn-ghost" />
             </div>
           </div>
         </div>
@@ -308,19 +569,42 @@ export default function ScanDetail() {
     );
   }
 
+  const isPaused = Boolean(scan.is_paused);
+  const canPause =
+    !isPaused &&
+    ["pending", "cloning", "scanning", "analyzing"].includes(scan.status);
+  const canResume =
+    isPaused &&
+    ["pending", "cloning", "scanning", "analyzing"].includes(scan.status);
+  const canDelete =
+    scan.status === "pending" ||
+    isPaused ||
+    ["completed", "failed"].includes(scan.status);
+
   return (
     <div className="space-y-6">
+      <BackLink to="/scans" label="Back to Scans" />
       <div className="surface-solid p-6">
         <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
               <span className={statusClass(scan.status)}>{scan.status}</span>
+              {isPaused ? (
+                <span className="badge border-amber-400/40 bg-amber-400/10 text-amber-200">
+                  paused
+                </span>
+              ) : null}
               <span className="badge">{scan.trigger}</span>
               {scan.scan_type !== "dast" ? (
                 <span className="badge">SAST</span>
               ) : null}
               {scan.scan_type !== "sast" ? (
                 <span className="badge">DAST</span>
+              ) : null}
+              {dastVerificationBadge && scan.scan_type !== "sast" ? (
+                <span className={dastVerificationBadge.className}>
+                  {dastVerificationBadge.label}
+                </span>
               ) : null}
               {scan.scan_type !== "dast" ? (
                 <span className="badge">branch {scan.branch}</span>
@@ -360,6 +644,9 @@ export default function ScanDetail() {
             <p className="mt-1 text-sm text-white/60">
               Started {formatDate(scan.created_at)}
             </p>
+            <p className="mt-1 text-xs text-white/50">
+              Updated {formatDate(scan.updated_at)}
+            </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <Link to={`/chat?scan_id=${scan.id}`} className="btn-primary">
@@ -367,10 +654,63 @@ export default function ScanDetail() {
             </Link>
             <button
               type="button"
+              className="btn-ghost"
+              onClick={handleRefresh}
+              disabled={isDownloadingReport}
+            >
+              Refresh
+            </button>
+            <button
+              type="button"
+              className="btn-ghost"
+              onClick={() =>
+                pauseScan.mutate(isPaused ? "resume" : "pause")
+              }
+              disabled={
+                pauseScan.isPending || (!canPause && !canResume)
+              }
+              title={
+                canPause
+                  ? "Pause scan processing"
+                  : canResume
+                    ? "Resume scan processing"
+                    : "Pause/resume available while scan is active"
+              }
+            >
+              {pauseScan.isPending
+                ? "Updating..."
+                : isPaused
+                  ? "Resume"
+                  : "Pause"}
+            </button>
+            <button
+              type="button"
+              className="btn-ghost text-rose-300 hover:text-rose-200"
+              onClick={() => {
+                if (!canDelete || deleteScan.isPending) return;
+                setConfirmDeleteOpen(true);
+              }}
+              disabled={!canDelete || deleteScan.isPending}
+              title={
+                canDelete
+                  ? "Delete this scan and its findings"
+                  : "Delete is available when pending, paused, completed, or failed"
+              }
+            >
+              {deleteScan.isPending ? "Deleting..." : "Delete"}
+            </button>
+            <button
+              type="button"
               className="inline-flex items-center gap-2 rounded-pill border border-neon-mint/30 bg-neon-mint/10 px-4 py-2 text-sm font-semibold text-neon-mint transition-all duration-200 hover:border-neon-mint/50 hover:bg-neon-mint/20 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:border-neon-mint/30 disabled:hover:bg-neon-mint/10"
               onClick={handleDownloadReport}
-              disabled={scan.status !== "completed" || isDownloadingReport}
-              title={scan.status !== "completed" ? "Report available after scan completes" : "Download PDF report"}
+              disabled={!canDownloadReport || isDownloadingReport}
+              title={
+                scan.status !== "completed"
+                  ? "Report available after scan completes"
+                  : reportMissing
+                    ? "Report missing. Regenerate to restore."
+                    : "Download PDF report"
+              }
             >
               {isDownloadingReport ? (
                 <svg
@@ -411,6 +751,16 @@ export default function ScanDetail() {
               )}
               {isDownloadingReport ? "Generating..." : "PDF Report"}
             </button>
+            {reportMissing ? (
+              <button
+                type="button"
+                className="btn-ghost"
+                onClick={handleRegenerateReport}
+                disabled={regenerateReport.isPending || isDownloadingReport}
+              >
+                {regenerateReport.isPending ? "Regenerating..." : "Regenerate"}
+              </button>
+            ) : null}
             {scan.pr_url ? (
               <a
                 href={scan.pr_url}
@@ -431,10 +781,16 @@ export default function ScanDetail() {
                 View Commit
               </a>
             ) : null}
-            <Link to="/scans" className="btn-ghost">
-              Back
-            </Link>
+            <BackLink to="/scans" label="Back" className="btn-ghost" />
           </div>
+        </div>
+        <div className="mt-3 text-xs text-white/60">
+          {reportStatus}
+          {reportStatusMessage ? ` ${reportStatusMessage}` : ""}
+          {isActiveScan ? " - Auto-refreshing every 8s." : ""}
+        </div>
+        <div className="mt-1 text-xs text-white/40">
+          Last refreshed {formatClock(lastRefreshedAt)}
         </div>
         {scan.error_message ? (
           <div className="mt-4 text-sm text-rose-200">{scan.error_message}</div>
@@ -443,7 +799,9 @@ export default function ScanDetail() {
           <div className="mt-4">
             <div className="flex items-center justify-between text-xs text-white/60">
               <span>Progress</span>
-              <span className="capitalize">{scan.status}</span>
+              <span className="capitalize">
+                {isPaused ? "paused" : scan.status}
+              </span>
             </div>
             <div className="mt-2 h-2 w-full rounded-pill bg-white/10">
               <div
@@ -451,6 +809,12 @@ export default function ScanDetail() {
                 style={{ width: `${progressWidth}%` }}
               />
             </div>
+            {phaseLabel ? (
+              <div className="mt-2 text-xs text-white/60">
+                Phase: {phaseLabel}
+                {scan.phase_message ? ` - ${scan.phase_message}` : ""}
+              </div>
+            ) : null}
           </div>
         ) : null}
       </div>
@@ -549,18 +913,43 @@ export default function ScanDetail() {
           <label className="flex items-center gap-2 text-sm text-white/70">
             <input
               type="checkbox"
-              className="h-4 w-4 rounded border-white/20 bg-void text-neon-mint"
+              className="checkbox"
               checked={includeFalsePositives}
               onChange={(event) => setIncludeFalsePositives(event.target.checked)}
             />
-            Include false positives
+            <span>Include false positives</span>
           </label>
+          <button
+            type="button"
+            className="btn-ghost"
+            onClick={() => refetchFindings()}
+            disabled={findingsLoading}
+          >
+            {findingsLoading ? "Refreshing..." : "Refresh"}
+          </button>
         </div>
+        {rawFindingsCount > 0 ? (
+          <div className="mt-2 text-xs text-white/60">
+            <span>{findingsSummary}</span>
+          </div>
+        ) : null}
       </div>
 
       {reportError ? (
         <div className="surface-solid p-4 text-sm text-rose-200">
           {reportError}
+        </div>
+      ) : null}
+
+      {pauseError ? (
+        <div className="surface-solid p-4 text-sm text-rose-200">
+          {pauseError}
+        </div>
+      ) : null}
+
+      {deleteError ? (
+        <div className="surface-solid p-4 text-sm text-rose-200">
+          {deleteError}
         </div>
       ) : null}
 
@@ -604,26 +993,73 @@ export default function ScanDetail() {
         </div>
       ) : null}
 
-      <div className="space-y-4">
-        {(findings || []).map((finding: Finding) => (
-          <FindingCard
-            key={finding.id}
-            finding={finding}
-            isUpdating={updateFinding.isPending && updatingId === finding.id}
-            onUpdateStatus={(findingId, status) =>
-              updateFinding.mutate({ id: findingId, status })
-            }
-          />
-        ))}
-
-        {!findingsLoading && !findingsError && (findings || []).length === 0 ? (
-          <div className="surface-solid p-6 text-sm text-white/60">
-            {scan.status === "completed"
-              ? "No findings for this scan."
-              : "Scan is still running. Findings will appear here once analysis completes."}
+      {enableVirtualList ? (
+        <div className="surface-solid max-h-[70vh] overflow-auto p-2" ref={listParentRef}>
+          <div
+            style={{
+              height: `${rowVirtualizer.getTotalSize()}px`,
+              position: "relative",
+            }}
+          >
+            {rowVirtualizer.getVirtualItems().map((virtualRow) => {
+              const finding = groupedFindings[virtualRow.index];
+              return (
+                <div
+                  key={finding.id}
+                  ref={rowVirtualizer.measureElement}
+                  data-index={virtualRow.index}
+                  style={{
+                    position: "absolute",
+                    top: 0,
+                    left: 0,
+                    width: "100%",
+                    transform: `translateY(${virtualRow.start}px)`,
+                  }}
+                >
+                  <div className="p-3">{renderFindingCard(finding)}</div>
+                </div>
+              );
+            })}
           </div>
-        ) : null}
-      </div>
+        </div>
+      ) : (
+        <div className="space-y-4">
+          {groupedFindings.map((finding) => renderFindingCard(finding))}
+
+          {!findingsLoading && !findingsError && groupedFindingsCount === 0 ? (
+            <div className="surface-solid p-6 text-sm text-white/60">
+              {scan.status === "completed"
+                ? "No findings for this scan."
+                : "Scan is still running. Findings will appear here once analysis completes."}
+            </div>
+          ) : null}
+        </div>
+      )}
+
+      <ConfirmDialog
+        open={confirmDeleteOpen}
+        title="Delete this scan?"
+        description="This will permanently remove the scan and all associated findings."
+        confirmLabel={deleteScan.isPending ? "Deleting..." : "Delete scan"}
+        cancelLabel="Cancel"
+        tone="danger"
+        confirmDisabled={deleteScan.isPending}
+        onCancel={() => setConfirmDeleteOpen(false)}
+        onConfirm={() => {
+          setConfirmDeleteOpen(false);
+          deleteScan.mutate();
+        }}
+      >
+        <div className="rounded-card border border-white/10 bg-surface p-4 text-xs text-white/70">
+          <div className="font-semibold text-white">Scan summary</div>
+          <div className="mt-2 space-y-1">
+            <div>Target: {headline}</div>
+            <div>Status: {scan.status}</div>
+            <div>Total findings: {stats.total}</div>
+            <div>Filtered issues: {stats.filtered}</div>
+          </div>
+        </div>
+      </ConfirmDialog>
     </div>
   );
 }

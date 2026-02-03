@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 import uuid
 
 from sqlalchemy import (
@@ -32,6 +32,8 @@ class Scan(Base):
     )
     dependency_health_enabled = Column(Boolean, nullable=False, default=True)
     target_url = Column(String, nullable=True)
+    dast_auth_headers = Column(JSON, nullable=True)  # {"Authorization": "Bearer token"}
+    dast_cookies = Column(Text, nullable=True)  # "session=abc; token=xyz"
     status = Column(
         Enum(
             "pending",
@@ -45,6 +47,9 @@ class Scan(Base):
         nullable=False,
         default="pending",
     )
+    phase = Column(String, nullable=True)
+    phase_message = Column(Text, nullable=True)
+    is_paused = Column(Boolean, nullable=False, default=False)
     trigger = Column(
         Enum("manual", "webhook", name="scan_trigger"),
         nullable=False,
@@ -53,6 +58,19 @@ class Scan(Base):
     total_findings = Column(Integer, nullable=False, default=0)
     filtered_findings = Column(Integer, nullable=False, default=0)
     dast_findings = Column(Integer, nullable=False, default=0)
+    dast_confirmed_count = Column(Integer, nullable=False, default=0)
+    dast_verification_status = Column(
+        Enum(
+            "verified",
+            "unverified_url",
+            "commit_mismatch",
+            "verification_error",
+            "not_applicable",
+            name="dast_verification_status_enum",
+        ),
+        nullable=False,
+        default="not_applicable",
+    )
     error_message = Column(Text, nullable=True)
     pr_number = Column(Integer, nullable=True)
     pr_url = Column(String, nullable=True)
@@ -62,12 +80,14 @@ class Scan(Base):
     rulesets = Column(JSON, nullable=True)
     scanned_files = Column(Integer, nullable=True)
     semgrep_version = Column(String, nullable=True)
-    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    created_at = Column(
+        DateTime, nullable=False, default=lambda: datetime.now(timezone.utc)
+    )
     updated_at = Column(
         DateTime,
         nullable=False,
-        default=datetime.utcnow,
-        onupdate=datetime.utcnow,
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
     )
     report_url = Column(String, nullable=True)
     report_generated_at = Column(DateTime, nullable=True)

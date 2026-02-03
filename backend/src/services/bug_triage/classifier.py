@@ -4,16 +4,55 @@ import os
 import pickle
 from typing import Dict
 
-import numpy as np
-from sentence_transformers import SentenceTransformer
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.preprocessing import LabelEncoder
+_numpy = None
+_SentenceTransformer = None
+_RandomForestClassifier = None
+_LabelEncoder = None
+
+
+def _get_numpy():
+    global _numpy
+    if _numpy is None:
+        import numpy as np
+
+        _numpy = np
+    return _numpy
+
+
+def _get_sentence_transformer():
+    global _SentenceTransformer
+    if _SentenceTransformer is None:
+        from sentence_transformers import SentenceTransformer as _ST
+
+        _SentenceTransformer = _ST
+    return _SentenceTransformer
+
+
+def _get_random_forest():
+    global _RandomForestClassifier
+    if _RandomForestClassifier is None:
+        from sklearn.ensemble import RandomForestClassifier as _RFC
+
+        _RandomForestClassifier = _RFC
+    return _RandomForestClassifier
+
+
+def _get_label_encoder():
+    global _LabelEncoder
+    if _LabelEncoder is None:
+        from sklearn.preprocessing import LabelEncoder as _LE
+
+        _LabelEncoder = _LE
+    return _LabelEncoder
 
 
 class BugClassifier:
     MODEL_VERSION = 2
 
     def __init__(self):
+        SentenceTransformer = _get_sentence_transformer()
+        LabelEncoder = _get_label_encoder()
+
         self.encoder = SentenceTransformer("all-MiniLM-L6-v2")
 
         self.type_classifier = None
@@ -122,6 +161,7 @@ class BugClassifier:
         self.component_encoder.fit(components)
         self.severity_encoder.fit(severities)
 
+        RandomForestClassifier = _get_random_forest()
         self.type_classifier = RandomForestClassifier(
             n_estimators=100, random_state=42
         )
@@ -170,6 +210,7 @@ class BugClassifier:
         text = f"{title} {description}"
         embedding = self.encoder.encode([text])
 
+        np = _get_numpy()
         type_probs = self.type_classifier.predict_proba(embedding)[0]
         type_pred = self.type_encoder.inverse_transform([np.argmax(type_probs)])[0]
 

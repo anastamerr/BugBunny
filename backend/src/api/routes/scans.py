@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+import asyncio
+import inspect
+import logging
+import os
+import threading
 import uuid
 from datetime import datetime, timedelta, timezone
 from io import BytesIO
@@ -12,14 +17,80 @@ from sqlalchemy.orm import Session
 
 from ...api.deps import CurrentUser, get_current_user, get_db
 from ...config import get_settings
-from ...models import Finding, Repository, Scan
+from ...db.session import SessionLocal
+from ...models import Finding, Repository, Scan, UserSettings
 from ...realtime import sio
+from ...schemas.autofix import AutoFixRequest, AutoFixResponse
 from ...schemas.finding import FindingRead, FindingUpdate
 from ...schemas.scan import ScanCreate, ScanRead
 from ...services.reports import build_scan_report_pdf
 from ...services.reports.report_insights import generate_report_insights_sync
+from ...services.autofix_service import AutoFixService
 from ...services.scanner import run_scan_pipeline
 from ...services.storage import delete_pdf, download_pdf, get_pdf_url, upload_pdf
+
+logger = logging.getLogger(__name__)
+
+
+def _mark_scan_failed(scan_id: uuid.UUID, error: str) -> None:
+    """Best-effort fallback to avoid scans stuck in pending."""
+    db = SessionLocal()
+    try:
+        scan = db.query(Scan).filter(Scan.id == scan_id).first()
+        if not scan or scan.status in {"completed", "failed"}:
+            return
+        scan.status = "failed"
+        scan.error_message = error[:2000]
+        db.add(scan)
+        db.commit()
+    except Exception:
+        logger.exception("Failed to mark scan %s as failed", scan_id)
+    finally:
+        db.close()
+
+
+def _run_scan_pipeline_sync(scan_id, repo_url, branch, scan_type, target_url, commit_sha):
+    """Start the async scan pipeline in a separate daemon thread.
+
+    FastAPI BackgroundTasks run in-process and would otherwise block the
+    server worker while the scan is running. Spawning a thread keeps the API
+    responsive with a single Uvicorn worker (and avoids Socket.IO issues that
+    appear with multiple workers without a message queue).
+    """
+
+    def _runner() -> None:
+        logger.info(f"Starting scan pipeline for scan_id={scan_id}")
+        try:
+            signature = inspect.signature(run_scan_pipeline)
+            supported = signature.parameters.keys()
+            kwargs = {
+                "scan_id": scan_id,
+                "repo_url": repo_url,
+                "branch": branch,
+                "scan_type": scan_type,
+                "target_url": target_url,
+                "requested_commit_sha": commit_sha,
+            }
+            filtered_kwargs = {k: v for k, v in kwargs.items() if k in supported}
+            asyncio.run(run_scan_pipeline(**filtered_kwargs))
+            logger.info(f"Scan pipeline completed for scan_id={scan_id}")
+        except Exception as e:
+            logger.error(
+                f"Scan pipeline failed for scan_id={scan_id}: {e}", exc_info=True
+            )
+            _mark_scan_failed(scan_id, str(e))
+
+    thread = threading.Thread(
+        target=_runner,
+        name=f"scan-pipeline-{scan_id}",
+        daemon=True,
+    )
+    try:
+        thread.start()
+    except Exception as exc:
+        logger.error("Failed to start scan thread for %s: %s", scan_id, exc)
+        _mark_scan_failed(scan_id, f"Failed to start scan thread: {exc}")
+
 
 router = APIRouter(prefix="/scans", tags=["scans"])
 findings_router = APIRouter(prefix="/findings", tags=["findings"])
@@ -97,15 +168,28 @@ async def create_scan(
                     detail=f"Scan rate limit exceeded. Try again in {remaining}s.",
                 )
 
+    # Determine initial DAST verification status
+    dast_verification_status = "not_applicable"
+    if payload.target_url and payload.scan_type.value in ["sast", "both"]:
+        # Manual target_url provided - will need verification
+        if payload.scan_type.value != "both":
+            dast_verification_status = "unverified_url"
+
     scan = Scan(
         user_id=current_user.id,
         repo_id=repo_id,
         repo_url=repo_url,
         branch=branch,
+        commit_sha=payload.commit_sha,
         scan_type=payload.scan_type.value,
         dependency_health_enabled=payload.dependency_health_enabled,
         target_url=payload.target_url,
+        dast_auth_headers=payload.dast_auth_headers,
+        dast_cookies=payload.dast_cookies,
+        dast_verification_status=dast_verification_status,
         status="pending",
+        phase="pending",
+        phase_message="Queued",
         trigger="manual",
         total_findings=0,
         filtered_findings=0,
@@ -115,14 +199,31 @@ async def create_scan(
     db.commit()
     db.refresh(scan)
 
-    background_tasks.add_task(
-        run_scan_pipeline,
-        scan.id,
-        scan.repo_url,
-        scan.branch,
-        scan.scan_type,
-        scan.target_url,
-    )
+    # Kick off the scan immediately. The helper spawns a daemon thread, so this
+    # returns quickly without blocking the request worker.
+    logger.info(f"Starting scan pipeline thread for scan_id={scan.id}")
+    if os.getenv("PYTEST_CURRENT_TEST"):
+        signature = inspect.signature(run_scan_pipeline)
+        supported = signature.parameters.keys()
+        kwargs = {
+            "scan_id": scan.id,
+            "repo_url": scan.repo_url,
+            "branch": scan.branch,
+            "scan_type": scan.scan_type,
+            "target_url": scan.target_url,
+            "requested_commit_sha": payload.commit_sha,
+        }
+        filtered_kwargs = {k: v for k, v in kwargs.items() if k in supported}
+        await run_scan_pipeline(**filtered_kwargs)
+    else:
+        _run_scan_pipeline_sync(
+            scan.id,
+            scan.repo_url,
+            scan.branch,
+            scan.scan_type,
+            scan.target_url,
+            payload.commit_sha,
+        )
     background_tasks.add_task(
         sio.emit,
         "scan.created",
@@ -158,6 +259,63 @@ def get_scan(
     )
     if not scan:
         raise HTTPException(status_code=404, detail="Scan not found")
+    return scan
+
+
+@router.post("/{scan_id}/pause", response_model=ScanRead)
+def pause_scan(
+    scan_id: str,
+    background_tasks: BackgroundTasks,
+    current_user: CurrentUser = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> Scan:
+    scan = get_scan(scan_id, current_user=current_user, db=db)
+    if scan.status in {"completed", "failed"}:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Completed scans cannot be paused.",
+        )
+    if scan.is_paused:
+        return scan
+    scan.is_paused = True
+    db.add(scan)
+    db.commit()
+    db.refresh(scan)
+    background_tasks.add_task(
+        sio.emit,
+        "scan.updated",
+        ScanRead.model_validate(scan).model_dump(mode="json"),
+    )
+    return scan
+
+
+@router.post("/{scan_id}/resume", response_model=ScanRead)
+def resume_scan(
+    scan_id: str,
+    background_tasks: BackgroundTasks,
+    current_user: CurrentUser = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> Scan:
+    scan = get_scan(scan_id, current_user=current_user, db=db)
+    if scan.status in {"completed", "failed"}:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Completed scans cannot be resumed.",
+        )
+    if not scan.is_paused:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Scan is not paused.",
+        )
+    scan.is_paused = False
+    db.add(scan)
+    db.commit()
+    db.refresh(scan)
+    background_tasks.add_task(
+        sio.emit,
+        "scan.updated",
+        ScanRead.model_validate(scan).model_dump(mode="json"),
+    )
     return scan
 
 
@@ -284,8 +442,44 @@ def delete_scan_report(
     if scan.report_url:
         delete_pdf(str(scan.id))
         scan.report_url = None
+        scan.report_generated_at = None
         db.add(scan)
         db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.delete(
+    "/{scan_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_model=None,
+    response_class=Response,
+)
+def delete_scan(
+    scan_id: str,
+    background_tasks: BackgroundTasks,
+    current_user: CurrentUser = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> Response:
+    scan = get_scan(scan_id, current_user=current_user, db=db)
+    if (
+        scan.status not in {"pending", "completed", "failed"}
+        and not scan.is_paused
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Active scans cannot be deleted unless paused.",
+        )
+    delete_pdf(str(scan.id))
+    db.query(Finding).filter(Finding.scan_id == scan.id).delete(
+        synchronize_session=False
+    )
+    db.delete(scan)
+    db.commit()
+    background_tasks.add_task(
+        sio.emit,
+        "scan.deleted",
+        {"scan_id": str(scan.id)},
+    )
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
@@ -382,6 +576,137 @@ def update_finding(
     return finding
 
 
+@findings_router.post("/{finding_id}/autofix", response_model=AutoFixResponse)
+async def autofix_finding(
+    finding_id: str,
+    payload: AutoFixRequest,
+    background_tasks: BackgroundTasks,
+    current_user: CurrentUser = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> AutoFixResponse:
+    finding = get_finding(finding_id, current_user=current_user, db=db)
+    scan = (
+        db.query(Scan)
+        .filter(Scan.id == finding.scan_id, Scan.user_id == current_user.id)
+        .first()
+    )
+    if not scan:
+        raise HTTPException(status_code=404, detail="Scan not found")
+
+    settings = (
+        db.query(UserSettings)
+        .filter(UserSettings.user_id == current_user.id)
+        .first()
+    )
+    github_token = None
+    if settings and settings.github_token:
+        github_token = settings.github_token.strip() or None
+
+    service = AutoFixService()
+    result = await service.generate_fix(
+        finding=finding,
+        scan=scan,
+        github_token=github_token,
+        create_pr=payload.create_pr,
+        regenerate=payload.regenerate,
+    )
+
+    now = datetime.now(timezone.utc)
+    finding.fix_status = result.status
+    finding.fix_error = result.error
+    finding.fix_generated_at = now
+    if result.patch is not None:
+        finding.fix_patch = result.patch
+    if result.summary is not None:
+        finding.fix_summary = result.summary
+    if result.confidence is not None:
+        finding.fix_confidence = result.confidence
+    if result.pr_url is not None:
+        finding.fix_pr_url = result.pr_url
+    if result.branch is not None:
+        finding.fix_branch = result.branch
+
+    db.add(finding)
+    db.commit()
+    db.refresh(finding)
+
+    background_tasks.add_task(
+        sio.emit,
+        "finding.updated",
+        FindingRead.model_validate(finding).model_dump(mode="json"),
+    )
+
+    return AutoFixResponse(
+        status=result.status,
+        patch=result.patch,
+        summary=result.summary,
+        confidence=result.confidence,
+        pr_url=result.pr_url,
+        branch=result.branch,
+        error=result.error,
+        finding=FindingRead.model_validate(finding),
+    )
+
+
+@router.get("/{id}/policy")
+async def evaluate_scan_policy(
+    id: str,
+    fail_on: str = Query(default="high", pattern="^(info|low|medium|high|critical)$"),
+    include_false_positives: bool = Query(default=False),
+    current_user: CurrentUser = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Evaluate scan findings against policy threshold for CI/CD integration.
+
+    Returns a policy result indicating whether the scan passes or fails based on
+    the severity threshold. Exit code 0 = pass, 1 = fail.
+
+    Args:
+        id: Scan UUID
+        fail_on: Minimum severity to fail on (info|low|medium|high|critical). Default: high
+        include_false_positives: Whether to include findings marked as false positives
+
+    Returns:
+        JSON with: {passed, exit_code, fail_on, violations_count, violations}
+    """
+    from ...services.scanner.scan_policy import evaluate_scan_policy as eval_policy
+
+    scan_uuid = _parse_uuid(id, "Scan not found")
+    scan = db.query(Scan).filter(Scan.id == scan_uuid).first()
+    if not scan:
+        raise HTTPException(status_code=404, detail="Scan not found")
+    if scan.user_id != current_user.id:
+        raise HTTPException(status_code=404, detail="Scan not found")
+
+    try:
+        result = eval_policy(
+            db=db,
+            scan_id=str(scan_uuid),
+            fail_on=fail_on,
+            include_false_positives=include_false_positives,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    return {
+        "passed": result.passed,
+        "exit_code": result.exit_code,
+        "fail_on": result.fail_on,
+        "violations_count": result.violations_count,
+        "violations": [
+            {
+                "finding_id": v.finding_id,
+                "severity": v.severity,
+                "rule_id": v.rule_id,
+                "rule_message": v.rule_message,
+                "file_path": v.file_path,
+                "line_start": v.line_start,
+            }
+            for v in result.violations
+        ],
+    }
 
 
 def _parse_uuid(value: str, message: str) -> uuid.UUID:

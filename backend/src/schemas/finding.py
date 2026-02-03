@@ -33,6 +33,26 @@ class FindingStatus(str, Enum):
     dismissed = "dismissed"
 
 
+class FixStatus(str, Enum):
+    generated = "generated"
+    pr_opened = "pr_opened"
+    failed = "failed"
+
+
+class DASTVerificationStatus(str, Enum):
+    not_run = "not_run"
+    confirmed_exploitable = "confirmed_exploitable"
+    not_confirmed = "not_confirmed"
+    inconclusive = "inconclusive"
+    attempted_not_reproduced = "attempted_not_reproduced"
+    blocked_auth_required = "blocked_auth_required"
+    blocked_rate_limit = "blocked_rate_limit"
+    inconclusive_mapping = "inconclusive_mapping"
+    bad_request = "bad_request"
+    error_timeout = "error_timeout"
+    error_tooling = "error_tooling"
+
+
 class FindingBase(BaseModel):
     scan_id: uuid.UUID
     rule_id: str
@@ -55,6 +75,10 @@ class FindingBase(BaseModel):
     is_test_file: bool = False
     is_generated: bool = False
     imports: Optional[List[str]] = None
+    sast_vuln_type: Optional[str] = None
+    sast_endpoint: Optional[str] = None
+    sast_http_method: Optional[str] = None
+    sast_parameter: Optional[str] = None
     matched_at: Optional[str] = None
     endpoint: Optional[str] = None
     curl_command: Optional[str] = None
@@ -65,6 +89,10 @@ class FindingBase(BaseModel):
     cwe_ids: Optional[List[str]] = None
     confirmed_exploitable: bool = False
 
+    # DAST verification fields
+    dast_verified: bool = False
+    dast_verification_status: Optional[DASTVerificationStatus] = None
+
     # Reachability analysis fields
     is_reachable: bool = True
     reachability_score: Optional[float] = 1.0
@@ -74,6 +102,16 @@ class FindingBase(BaseModel):
 
     status: FindingStatus = FindingStatus.new
     priority_score: Optional[int] = None
+    dedupe_key: Optional[str] = None
+
+    fix_status: Optional[FixStatus] = None
+    fix_summary: Optional[str] = None
+    fix_patch: Optional[str] = None
+    fix_pr_url: Optional[str] = None
+    fix_branch: Optional[str] = None
+    fix_error: Optional[str] = None
+    fix_confidence: Optional[float] = None
+    fix_generated_at: Optional[datetime] = None
 
 
 class FindingCreate(FindingBase):

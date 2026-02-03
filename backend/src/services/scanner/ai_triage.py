@@ -108,8 +108,8 @@ class AITriageEngine:
 
     def _system_prompt(self) -> str:
         return (
-            "You are ScanGuard AI, a senior security engineer and the final judge of findings.\n"
-            "Semgrep output is advisory and noisy; you are trusted to dismiss false positives.\n"
+            "You are BugBunny, a senior security engineer providing metadata-only triage.\n"
+            "Semgrep output is advisory and noisy; your output enriches findings but does not gate DAST.\n"
             "Mark is_false_positive=true when context shows the issue is not exploitable, "
             "unreachable, test-only, generated, or otherwise safe.\n"
             "If uncertain, say so in reasoning and choose the lowest realistic severity "
@@ -168,7 +168,7 @@ class AITriageEngine:
             "}\n\n"
             "Return only valid JSON (no markdown or extra text).\n"
             "Use concrete details from the snippet (variables, functions, data flow).\n"
-            "You are the judge; Semgrep severity is not authoritative.\n"
+            "Your assessment is advisory; DAST verification will determine exploitability.\n"
             "Consider:\n"
             "- Is the vulnerable code actually reachable?\n"
             "- Is there input validation elsewhere?\n"

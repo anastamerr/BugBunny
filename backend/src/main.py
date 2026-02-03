@@ -1,4 +1,12 @@
 import asyncio
+import logging
+from contextlib import asynccontextmanager
+
+# Configure logging to see scan pipeline output
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+)
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -18,7 +26,18 @@ from .realtime import sio
 
 settings = get_settings()
 
-app = FastAPI(title="ScanGuard AI API", version="0.1.0")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    if settings.github_backfill_on_start:
+        try:
+            await asyncio.to_thread(backfill_github_issues)
+        except Exception as exc:  # pragma: no cover
+            print(f"[github_backfill] skipped: {type(exc).__name__}: {exc}")
+    yield
+
+
+app = FastAPI(title="BugBunny API", version="0.1.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -40,17 +59,7 @@ app.include_router(webhooks_router, prefix=settings.api_prefix)
 
 @app.get("/")
 async def root() -> dict:
-    return {"name": "ScanGuard AI", "status": "ok"}
-
-
-@app.on_event("startup")
-async def maybe_backfill_github() -> None:
-    if not settings.github_backfill_on_start:
-        return
-    try:
-        await asyncio.to_thread(backfill_github_issues)
-    except Exception as exc:  # pragma: no cover
-        print(f"[github_backfill] skipped: {type(exc).__name__}: {exc}")
+    return {"name": "BugBunny", "status": "ok"}
 
 
 asgi_app = socketio.ASGIApp(

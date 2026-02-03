@@ -36,10 +36,21 @@ def test_github_issues_webhook_creates_bug(db_sessionmaker, monkeypatch):
         def route_bug(self, classification):
             return {"team": "backend_team"}
 
+    class DummyDuplicateDetector:
+        def find_duplicates(self, *args, **kwargs):  # noqa: ANN001
+            return []
+
+        def register_bug(self, *args, **kwargs):  # noqa: ANN001
+            return None
+
     monkeypatch.setattr(
         webhooks_routes,
         "get_ingestor",
-        lambda: GitHubIngestor(classifier=DummyClassifier(), auto_router=DummyRouter()),
+        lambda: GitHubIngestor(
+            classifier=DummyClassifier(),
+            auto_router=DummyRouter(),
+            duplicate_detector=DummyDuplicateDetector(),
+        ),
     )
 
     def override_get_db():
@@ -130,10 +141,21 @@ def test_github_issue_comment_webhook_updates_bug_labels(db_sessionmaker, monkey
         def route_bug(self, classification):
             return {"team": "backend_team"}
 
+    class DummyDuplicateDetector:
+        def find_duplicates(self, *args, **kwargs):  # noqa: ANN001
+            return []
+
+        def register_bug(self, *args, **kwargs):  # noqa: ANN001
+            return None
+
     monkeypatch.setattr(
         webhooks_routes,
         "get_ingestor",
-        lambda: GitHubIngestor(classifier=DummyClassifier(), auto_router=DummyRouter()),
+        lambda: GitHubIngestor(
+            classifier=DummyClassifier(),
+            auto_router=DummyRouter(),
+            duplicate_detector=DummyDuplicateDetector(),
+        ),
     )
 
     def override_get_db():
