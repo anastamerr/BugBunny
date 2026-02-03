@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import List, Optional
+import uuid
 
 from sqlalchemy.orm import Session
 
@@ -75,7 +76,7 @@ def _severity_meets_threshold(severity: str, threshold: str) -> bool:
 
 def evaluate_scan_policy(
     db: Session,
-    scan_id: str,
+    scan_id: str | uuid.UUID,
     fail_on: str = "high",
     include_false_positives: bool = False,
 ) -> PolicyResult:
@@ -101,13 +102,23 @@ def evaluate_scan_policy(
             f"Must be one of: {', '.join(SEVERITY_LEVELS)}"
         )
 
+    # Normalize scan id
+    scan_uuid: uuid.UUID
+    if isinstance(scan_id, uuid.UUID):
+        scan_uuid = scan_id
+    else:
+        try:
+            scan_uuid = uuid.UUID(str(scan_id))
+        except ValueError as exc:
+            raise RuntimeError(f"Scan not found: {scan_id}") from exc
+
     # Check scan exists
-    scan = db.query(Scan).filter(Scan.id == scan_id).first()
+    scan = db.query(Scan).filter(Scan.id == scan_uuid).first()
     if not scan:
         raise RuntimeError(f"Scan not found: {scan_id}")
 
     # Query findings
-    query = db.query(Finding).filter(Finding.scan_id == scan_id)
+    query = db.query(Finding).filter(Finding.scan_id == scan_uuid)
 
     # Filter false positives if requested
     if not include_false_positives:

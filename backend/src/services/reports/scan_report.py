@@ -765,8 +765,8 @@ def _criticality_sort_key(finding: Finding) -> tuple[int, int, float]:
         "low": 2,
         "info": 1,
     }.get(severity, 0)
-    priority = finding.priority_score or 0
-    confidence = float(finding.ai_confidence or 0.0)
+    priority = getattr(finding, "priority_score", None) or 0
+    confidence = float(getattr(finding, "ai_confidence", 0.0) or 0.0)
     return (severity_rank, priority, confidence)
 
 
@@ -775,16 +775,21 @@ def _criticality_rationale(finding: Finding) -> str:
     severity = _severity_label(finding).lower()
     if severity:
         parts.append(f"AI severity: {severity}")
-    if finding.ai_confidence is not None:
-        parts.append(f"confidence: {int(round(finding.ai_confidence * 100))}%")
-    if finding.priority_score is not None:
-        parts.append(f"priority score: {finding.priority_score}")
-    if finding.dast_verification_status and finding.dast_verification_status != "not_run":
-        parts.append(f"DAST: {finding.dast_verification_status.replace('_', ' ')}")
-    if finding.exploitability:
-        parts.append(f"exploitability: {finding.exploitability}")
-    if finding.is_reachable is not None:
-        if finding.is_reachable:
+    ai_confidence = getattr(finding, "ai_confidence", None)
+    if ai_confidence is not None:
+        parts.append(f"confidence: {int(round(ai_confidence * 100))}%")
+    priority_score = getattr(finding, "priority_score", None)
+    if priority_score is not None:
+        parts.append(f"priority score: {priority_score}")
+    dast_status = getattr(finding, "dast_verification_status", None)
+    if dast_status and dast_status != "not_run":
+        parts.append(f"DAST: {dast_status.replace('_', ' ')}")
+    exploitability = getattr(finding, "exploitability", None)
+    if exploitability:
+        parts.append(f"exploitability: {exploitability}")
+    is_reachable = getattr(finding, "is_reachable", None)
+    if is_reachable is not None:
+        if is_reachable:
             parts.append("reachability: reachable")
         else:
             parts.append("reachability: not reachable")

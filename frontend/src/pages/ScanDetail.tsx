@@ -39,7 +39,7 @@ function formatReduction(scan: Scan) {
       ? 1 - scan.filtered_findings / scan.total_findings
       : 0;
   const pct = Math.round(Math.max(0, Math.min(1, ratio)) * 100);
-  return `${scan.total_findings} -> ${scan.filtered_findings} (${pct}% filtered)`;
+  return `${scan.total_findings} to ${scan.filtered_findings} (${pct}% filtered)`;
 }
 
 function shortSha(value?: string | null) {
@@ -337,6 +337,20 @@ export default function ScanDetail() {
   const rawFindingsCount = (findings || []).length;
   const groupedFindingsCount = groupedFindings.length;
   const hasGroupedDast = rawDastCount > 0 && groupedDastCount > 0;
+  const findingsSummary = hasGroupedDast
+    ? `${groupedFindingsCount} grouped findings from ${rawDastCount} raw alerts`
+    : `${groupedFindingsCount} findings`;
+  const reportReady = Boolean(scan?.report_generated_at || scan?.report_url);
+  const reportStatus =
+    scan?.status === "completed"
+      ? reportReady
+        ? `Report ready (generated ${formatDate(scan.report_generated_at)})`
+        : "Report can be generated after review"
+      : "Report available after scan completes";
+  const isActiveScan = Boolean(
+    scan &&
+      ["pending", "cloning", "scanning", "analyzing"].includes(scan.status),
+  );
 
   if (!id) {
     return (
@@ -651,6 +665,10 @@ export default function ScanDetail() {
             <BackLink to="/scans" label="Back" className="btn-ghost" />
           </div>
         </div>
+        <div className="mt-3 text-xs text-white/60">
+          {reportStatus}
+          {isActiveScan ? " - Auto-refreshing every 8s." : ""}
+        </div>
         {scan.error_message ? (
           <div className="mt-4 text-sm text-rose-200">{scan.error_message}</div>
         ) : null}
@@ -772,22 +790,24 @@ export default function ScanDetail() {
           <label className="flex items-center gap-2 text-sm text-white/70">
             <input
               type="checkbox"
-              className="h-4 w-4 rounded border-white/20 bg-void text-neon-mint"
+              className="checkbox"
               checked={includeFalsePositives}
               onChange={(event) => setIncludeFalsePositives(event.target.checked)}
             />
             <span>Include false positives</span>
           </label>
+          <button
+            type="button"
+            className="btn-ghost"
+            onClick={() => refetchFindings()}
+            disabled={findingsLoading}
+          >
+            {findingsLoading ? "Refreshing..." : "Refresh"}
+          </button>
         </div>
         {rawFindingsCount > 0 ? (
           <div className="mt-2 text-xs text-white/60">
-            {hasGroupedDast ? (
-              <span>
-                {rawDastCount} raw alerts -> {groupedDastCount} grouped findings
-              </span>
-            ) : (
-              <span>{groupedFindingsCount} findings</span>
-            )}
+            <span>{findingsSummary}</span>
           </div>
         ) : null}
       </div>

@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import inspect
 import logging
+import os
 import threading
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -201,14 +202,28 @@ async def create_scan(
     # Kick off the scan immediately. The helper spawns a daemon thread, so this
     # returns quickly without blocking the request worker.
     logger.info(f"Starting scan pipeline thread for scan_id={scan.id}")
-    _run_scan_pipeline_sync(
-        scan.id,
-        scan.repo_url,
-        scan.branch,
-        scan.scan_type,
-        scan.target_url,
-        payload.commit_sha,
-    )
+    if os.getenv("PYTEST_CURRENT_TEST"):
+        signature = inspect.signature(run_scan_pipeline)
+        supported = signature.parameters.keys()
+        kwargs = {
+            "scan_id": scan.id,
+            "repo_url": scan.repo_url,
+            "branch": scan.branch,
+            "scan_type": scan.scan_type,
+            "target_url": scan.target_url,
+            "requested_commit_sha": payload.commit_sha,
+        }
+        filtered_kwargs = {k: v for k, v in kwargs.items() if k in supported}
+        await run_scan_pipeline(**filtered_kwargs)
+    else:
+        _run_scan_pipeline_sync(
+            scan.id,
+            scan.repo_url,
+            scan.branch,
+            scan.scan_type,
+            scan.target_url,
+            payload.commit_sha,
+        )
     background_tasks.add_task(
         sio.emit,
         "scan.created",

@@ -66,7 +66,7 @@ function formatCorrelationMeta(meta: {
   const parts = [meta.status, meta.component, meta.severity]
     .map((item) => (typeof item === "string" ? item.trim() : ""))
     .filter(Boolean);
-  return parts.length ? parts.join(" · ") : "n/a";
+  return parts.length ? parts.join(" - ") : "n/a";
 }
 
 export default function BugDetail() {
@@ -185,6 +185,9 @@ export default function BugDetail() {
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
+            <Link to={`/chat?bug_id=${bug.id}`} className="btn-primary">
+              Ask AI
+            </Link>
             {githubUrl ? (
               <a
                 href={githubUrl}
@@ -291,7 +294,7 @@ export default function BugDetail() {
                   Resolution Notes
                 </div>
                 <textarea
-                  className="mt-2 min-h-[96px] w-full resize-y rounded-card border-2 border-white/10 bg-void px-4 py-3 text-sm text-white placeholder-white/30 outline-none transition-colors duration-200 ease-fluid focus:border-neon-mint"
+                  className="input-textarea mt-2 min-h-[96px] w-full"
                   name="resolution_notes"
                   placeholder="What fixed it? Links to PRs/runbooks/follow-ups..."
                   defaultValue={bug.resolution_notes || ""}
@@ -306,6 +309,16 @@ export default function BugDetail() {
               >
                 {updateBugMutation.isPending ? "Saving..." : "Save"}
               </button>
+              {updateBugMutation.isError ? (
+                <div className="text-sm text-rose-200">
+                  {updateBugMutation.error instanceof Error
+                    ? updateBugMutation.error.message
+                    : "Failed to save workflow."}
+                </div>
+              ) : null}
+              {updateBugMutation.isSuccess ? (
+                <div className="text-sm text-neon-mint">Saved.</div>
+              ) : null}
             </form>
           </div>
         </div>

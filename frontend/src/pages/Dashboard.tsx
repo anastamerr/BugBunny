@@ -150,38 +150,49 @@ export default function Dashboard() {
             </Link>
           </div>
           <div className="mt-4 space-y-3 text-sm">
-            {scanList.slice(0, 5).map((scan) => {
-              const headline = scan.repo_url
-                ? formatRepoName(scan.repo_url)
-                : scan.target_url || "DAST scan";
-              const scanScope =
-                scan.scan_type === "dast"
-                  ? scan.target_url || "DAST"
-                  : scan.branch;
-              const scanState = scan.is_paused ? "paused" : scan.status;
-
-              return (
-                <div
-                  key={scan.id}
-                  className="flex items-center justify-between gap-4 rounded-card border border-white/10 bg-surface px-4 py-3"
-                >
-                  <div className="min-w-0">
-                    <div className="truncate font-semibold text-white">
-                      {headline}
-                    </div>
-                    <div className="mt-1 text-xs text-white/60">
-                      {scanScope} {"->"} {scanState}
-                    </div>
-                  </div>
-                  <Link to={`/scans/${scan.id}`} className="btn-ghost">
-                    View
+            {scanList.length === 0 ? (
+              <div className="rounded-card border border-white/10 bg-surface p-4 text-sm text-white/60">
+                <div className="text-white/80">No scans yet.</div>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <Link to="/scans" className="btn-primary">
+                    Run a scan
+                  </Link>
+                  <Link to="/repos" className="btn-ghost">
+                    Add repository
                   </Link>
                 </div>
-              );
-            })}
-            {scanList.length === 0 ? (
-              <div className="text-sm text-white/60">No scans yet.</div>
-            ) : null}
+              </div>
+            ) : (
+              scanList.slice(0, 5).map((scan) => {
+                const headline = scan.repo_url
+                  ? formatRepoName(scan.repo_url)
+                  : scan.target_url || "DAST scan";
+                const scanScope =
+                  scan.scan_type === "dast"
+                    ? scan.target_url || "DAST"
+                    : scan.branch;
+                const scanState = scan.is_paused ? "paused" : scan.status;
+
+                return (
+                  <div
+                    key={scan.id}
+                    className="flex items-center justify-between gap-4 rounded-card border border-white/10 bg-surface px-4 py-3"
+                  >
+                    <div className="min-w-0">
+                      <div className="truncate font-semibold text-white">
+                        {headline}
+                      </div>
+                      <div className="mt-1 text-xs text-white/60">
+                        {scanScope} {"->"} {scanState}
+                      </div>
+                    </div>
+                    <Link to={`/scans/${scan.id}`} className="btn-ghost">
+                      View
+                    </Link>
+                  </div>
+                );
+              })
+            )}
           </div>
         </div>
 

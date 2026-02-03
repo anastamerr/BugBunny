@@ -749,7 +749,7 @@ function NewScanForm({
                 <div className="mt-2 flex items-center justify-between text-xs text-white/40">
                   <span>Manage your saved repositories</span>
                   <Link to="/repos" className="text-neon-mint hover:text-neon-mint/80 transition-colors">
-                    Edit list ->
+                    Edit list
                   </Link>
                 </div>
               </div>
