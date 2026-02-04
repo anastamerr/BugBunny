@@ -27,6 +27,15 @@ MAX_CRITICAL_FINDINGS = 10
 MAX_PRIORITY_FINDINGS = 8
 TREND_MAX_SCANS = 12
 
+# Priority grading bands (0-100)
+PRIORITY_BANDS = [
+    ("critical", 90, 100),
+    ("high", 75, 89),
+    ("medium", 55, 74),
+    ("low", 35, 54),
+    ("info", 0, 34),
+]
+
 # Color palette - Modern dark theme inspired
 COLORS = {
     "primary": colors.HexColor("#00d768"),  # Neon mint
@@ -153,7 +162,12 @@ def build_scan_report_pdf(
     # Critical Findings section
     story.append(HorizontalRule(page_width))
     story.append(Spacer(1, 12))
-    story.append(Paragraph("Critical Findings (AI Reviewed)", styles["SectionHeading"]))
+    story.append(
+        Paragraph(
+            "Critical Findings (AI Severity or Priority >= 90)",
+            styles["SectionHeading"],
+        )
+    )
     story.extend(_build_critical_findings(findings, styles, page_width))
     story.append(Spacer(1, 16))
 
@@ -403,7 +417,8 @@ def _ai_summary_text() -> str:
         "AI triage reviews each finding with code context, exploitability signals, "
         "reachability checks, and dynamic evidence when available. Findings marked "
         "as false positives are excluded from this report. Priority ordering blends "
-        "AI severity, confidence, and confirmed exploitability."
+        "AI severity, confidence, exploitability, and reachability. Severity is a "
+        "category; priority is a 0-100 score that can differ based on context."
     )
 
 
@@ -414,7 +429,9 @@ def _assessment_criteria_text() -> str:
         "- Severity of impact (data loss, auth bypass, RCE, etc.)<br/>"
         "- Environmental exposure (public endpoints, auth-required, internal-only)<br/>"
         "- Dynamic verification (DAST confirmation or evidence, when available)<br/>"
-        "- AI confidence and supporting context in code snippets and call paths"
+        "- AI confidence and supporting context in code snippets and call paths<br/>"
+        "- Priority score (0-100) blends severity, confidence, exploitability, reachability, and evidence<br/>"
+        "- Priority bands: Critical 90-100, High 75-89, Medium 55-74, Low 35-54, Info 0-34"
     )
 
 
@@ -780,7 +797,8 @@ def _criticality_rationale(finding: Finding) -> str:
         parts.append(f"confidence: {int(round(ai_confidence * 100))}%")
     priority_score = getattr(finding, "priority_score", None)
     if priority_score is not None:
-        parts.append(f"priority score: {priority_score}")
+        grade = _priority_grade(int(priority_score))
+        parts.append(f"priority score: {priority_score} ({grade})")
     dast_status = getattr(finding, "dast_verification_status", None)
     if dast_status and dast_status != "not_run":
         parts.append(f"DAST: {dast_status.replace('_', ' ')}")
@@ -799,7 +817,18 @@ def _criticality_rationale(finding: Finding) -> str:
 
 
 def _priority_label(finding: Finding) -> str:
-    return str(finding.priority_score) if finding.priority_score is not None else "n/a"
+    if finding.priority_score is None:
+        return "n/a"
+    score = int(finding.priority_score)
+    grade = _priority_grade(score)
+    return f"{score} ({grade})"
+
+
+def _priority_grade(score: int) -> str:
+    for label, low, high in PRIORITY_BANDS:
+        if low <= score <= high:
+            return label.title()
+    return "Info"
 
 
 def _finding_label(finding: Finding) -> str:
@@ -880,11 +909,22 @@ def _add_page_elements(canvas, doc, generated_at: datetime, is_first: bool = Tru
         canvas.setFillColor(COLORS["text_secondary"])
         canvas.drawString(40, doc.pagesize[1] - 30, "BugBunny Report")
 
-    # Footer with page number and branding
-    canvas.setFont("Helvetica", 8)
+    # Footer with grading criteria, page number, and branding
     canvas.setFillColor(COLORS["text_muted"])
-    canvas.drawString(40, 20, f"Generated: {_format_datetime(generated_at)}")
-    canvas.drawRightString(page_width - 40, 20, f"Page {doc.page}")
+    canvas.setFont("Helvetica", 6)
+    canvas.drawString(
+        40,
+        26,
+        "Priority score: Critical 90-100, High 75-89, Medium 55-74, Low 35-54, Info 0-34.",
+    )
+    canvas.drawString(
+        40,
+        18,
+        "Score blends severity, confidence, exploitability, reachability, and evidence (DAST when available).",
+    )
+    canvas.setFont("Helvetica", 7)
+    canvas.drawString(40, 10, f"Generated: {_format_datetime(generated_at)}")
+    canvas.drawRightString(page_width - 40, 10, f"Page {doc.page}")
 
     # Bottom accent line
     canvas.setStrokeColor(COLORS["primary"])
