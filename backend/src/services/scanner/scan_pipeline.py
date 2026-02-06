@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import ipaddress
 import logging
 import uuid
 from urllib.parse import urlparse
@@ -1036,19 +1037,25 @@ def _merge_error_message(current: Optional[str], new_message: str) -> str:
 def _is_local_target_url(target_url: Optional[str]) -> bool:
     if not target_url:
         return False
-    normalized = target_url.strip().lower()
+    normalized = target_url.strip()
     if not normalized:
         return False
-    if "localhost" in normalized or "127.0.0.1" in normalized or "[::1]" in normalized:
-        return True
-    if ":3000" in normalized or ":8080" in normalized:
-        return True
     try:
         parsed = urlparse(normalized if "://" in normalized else f"http://{normalized}")
     except Exception:
         return False
-    host = parsed.hostname or ""
-    return host in {"localhost", "127.0.0.1", "::1"}
+    host = (parsed.hostname or "").strip().lower().strip(".")
+    if not host:
+        return False
+    if host in {"localhost", "127.0.0.1", "::1", "0.0.0.0", "host.docker.internal"}:
+        return True
+    if host.endswith(".local"):
+        return True
+    try:
+        ip = ipaddress.ip_address(host)
+    except ValueError:
+        return False
+    return bool(ip.is_loopback or ip.is_private)
 
 
 def _build_dedupe_key(*parts: Optional[str]) -> str:

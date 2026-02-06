@@ -624,3 +624,15 @@ async def test_scan_pipeline_upserts_project_memory(
     )
 
     assert tracker.called is True
+
+
+def test_is_local_target_url_accepts_expected_local_hosts():
+    assert scan_pipeline._is_local_target_url("http://localhost:3000")
+    assert scan_pipeline._is_local_target_url("http://127.0.0.1:8080")
+    assert scan_pipeline._is_local_target_url("http://host.docker.internal:5173")
+    assert scan_pipeline._is_local_target_url("http://192.168.1.10:9000")
+
+
+def test_is_local_target_url_rejects_remote_dev_ports():
+    assert scan_pipeline._is_local_target_url("https://example.com:3000") is False
+    assert scan_pipeline._is_local_target_url("https://api.example.org:8080") is False

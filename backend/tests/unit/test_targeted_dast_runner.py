@@ -8,6 +8,7 @@ from src.services.scanner.targeted_dast_runner import (
     _prepare_target_request,
 )
 from src.services.scanner.types import DASTAttackConfig, TriagedFinding
+from src.services.scanner.types import DASTAttackResult
 from src.services.scanner.zap_parser import classify_vulnerability
 
 
@@ -216,3 +217,26 @@ async def test_attack_findings_returns_error_when_docker_unavailable(monkeypatch
 
     assert len(results) == 1
     assert results[0].verification_status == "error_tooling"
+
+
+def test_map_results_handles_missing_ai_confidence():
+    runner = TargetedDASTRunner()
+    finding = make_triaged_finding()
+    finding.ai_confidence = None
+    finding_id = f"{finding.rule_id}:{finding.file_path}:{finding.line_start}"
+    result = DASTAttackResult(
+        finding_id=finding_id,
+        attack_succeeded=True,
+        confidence=0.95,
+        verification_status="confirmed_exploitable",
+    )
+
+    updated, confirmed = runner.map_results_to_findings(
+        [finding],
+        [result],
+        "/repo",
+    )
+
+    assert confirmed == 1
+    assert updated[0].ai_confidence == pytest.approx(0.2)
+    assert updated[0].confirmed_exploitable is True

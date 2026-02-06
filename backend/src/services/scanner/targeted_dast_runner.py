@@ -1188,7 +1188,12 @@ class TargetedDASTRunner(BaseDASTRunner):
                 if dast_result.attack_succeeded:
                     finding.confirmed_exploitable = True
                     finding.is_false_positive = False
-                    finding.ai_confidence = min(1.0, finding.ai_confidence + 0.2)
+                    current_confidence = finding.ai_confidence
+                    if not isinstance(current_confidence, (int, float)):
+                        current_confidence = 0.0
+                    finding.ai_confidence = min(
+                        1.0, max(0.0, float(current_confidence)) + 0.2
+                    )
                     confirmed_count += 1
 
         return triaged_findings, confirmed_count
