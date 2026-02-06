@@ -53,6 +53,14 @@ body {
     @apply inline-flex items-center justify-center rounded-pill border border-white/10 bg-white/0 px-3 py-2 text-sm font-semibold tracking-tight text-white/80 hover:bg-white/5 hover:text-white transition-colors duration-200 ease-fluid focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neon-mint/40 focus-visible:ring-offset-2 focus-visible:ring-offset-void;
   }
 
+  .btn-secondary {
+    @apply inline-flex items-center justify-center rounded-pill border border-white/20 bg-white/5 px-4 py-2 text-sm font-semibold tracking-tight text-white hover:bg-white/10 hover:border-white/30 transition-colors duration-200 ease-fluid disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neon-mint/40 focus-visible:ring-offset-2 focus-visible:ring-offset-void;
+  }
+
+  .btn-danger {
+    @apply inline-flex items-center justify-center rounded-pill border border-rose-400/30 bg-rose-400/10 px-4 py-2 text-sm font-semibold tracking-tight text-rose-200 hover:bg-rose-400/20 hover:border-rose-400/50 hover:text-rose-100 transition-colors duration-200 ease-fluid disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-400/40 focus-visible:ring-offset-2 focus-visible:ring-offset-void;
+  }
+
   .badge {
     @apply inline-flex items-center rounded-pill border border-white/20 bg-white/10 px-2 py-0.5 text-[11px] font-semibold text-white/80;
   }
@@ -104,7 +112,7 @@ body {
   }
 
   .stat-label {
-    @apply text-xs font-medium uppercase tracking-widest text-white/50;
+    @apply text-xs font-medium uppercase tracking-widest text-white/70;
   }
 
   /* Progress Bar */
@@ -156,7 +164,7 @@ body {
   }
 
   .empty-state-description {
-    @apply max-w-sm text-sm text-white/50;
+    @apply max-w-sm text-sm text-white/70;
   }
 
   /* Table */

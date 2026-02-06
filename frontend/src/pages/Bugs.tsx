@@ -1,16 +1,12 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { Bug } from "lucide-react";
 import { Link } from "react-router-dom";
 
 import { bugsApi } from "../api/bugs";
-
-function severityClass(severity: string) {
-  const normalized = String(severity || "").toUpperCase();
-  if (normalized === "CRITICAL") {
-    return "badge border-neon-mint/40 bg-neon-mint/10 text-neon-mint";
-  }
-  return "badge";
-}
+import { EmptyState } from "../components/ui/EmptyState";
+import { LoadingState } from "../components/ui/LoadingState";
+import { getSeverityClass } from "../utils/severity";
 
 export default function Bugs() {
   const [query, setQuery] = useState("");
@@ -20,7 +16,7 @@ export default function Bugs() {
     queryFn: () => bugsApi.getAll(),
   });
 
-  const bugs = data || [];
+  const bugs = useMemo(() => data ?? [], [data]);
   const filtered = useMemo(() => {
     const normalized = query.trim().toLowerCase();
     return bugs.filter((bug) => {
@@ -98,65 +94,84 @@ export default function Bugs() {
         </div>
       </div>
 
-      {isLoading && <div className="text-sm text-white/60">Loading...</div>}
-
       {error ? (
-        <div className="surface-solid p-4 text-sm text-rose-200">
+        <div role="alert" className="surface-solid p-4 text-sm text-rose-200">
           {error instanceof Error ? error.message : "Unable to load bugs."}
         </div>
       ) : null}
 
-      <div className="table-container">
-        <table className="table min-w-[860px]">
-          <thead>
-            <tr>
-              <th>Title</th>
-              <th>Component</th>
-              <th>Severity</th>
-              <th>Team</th>
-              <th>Status</th>
-            </tr>
-          </thead>
-          <tbody>
-            {filtered.map((bug) => (
-              <tr key={bug.id}>
-                <td className="font-semibold text-white">
-                  <Link
-                    to={`/bugs/${bug.id}`}
-                    className="underline decoration-white/20 underline-offset-4 hover:decoration-neon-mint/60 hover:text-neon-mint"
-                  >
-                    {bug.title}
-                  </Link>
-                </td>
-                <td>{bug.classified_component}</td>
-                <td>
-                  <span className={severityClass(bug.classified_severity)}>
-                    {bug.classified_severity}
-                  </span>
-                </td>
-                <td className="text-white/60">{bug.assigned_team || "n/a"}</td>
-                <td>
-                  <span className="badge">{bug.status}</span>
-                </td>
-              </tr>
-            ))}
-            {bugs.length === 0 && !isLoading && !error && (
+      {isLoading ? (
+        <div className="table-container">
+          <table className="table min-w-[860px]">
+            <thead>
               <tr>
-                <td className="py-8 text-center text-white/60" colSpan={5}>
-                  No bugs yet.
-                </td>
+                <th>Title</th>
+                <th>Component</th>
+                <th>Severity</th>
+                <th>Team</th>
+                <th>Status</th>
               </tr>
-            )}
-            {bugs.length > 0 && filtered.length === 0 && !isLoading && !error && (
+            </thead>
+            <LoadingState variant="table" count={5} />
+          </table>
+        </div>
+      ) : bugs.length === 0 && !error ? (
+        <EmptyState
+          icon={<Bug className="h-16 w-16" />}
+          title="No bugs yet"
+          description="Bugs will appear here once scans identify and triage issues."
+          action={
+            <Link to="/scans" className="btn-primary">
+              Run a scan
+            </Link>
+          }
+        />
+      ) : (
+        <div className="table-container">
+          <table className="table min-w-[860px]">
+            <thead>
               <tr>
-                <td className="py-8 text-center text-white/60" colSpan={5}>
-                  No results match this filter.
-                </td>
+                <th>Title</th>
+                <th>Component</th>
+                <th>Severity</th>
+                <th>Team</th>
+                <th>Status</th>
               </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
+            </thead>
+            <tbody>
+              {filtered.map((bug) => (
+                <tr key={bug.id}>
+                  <td className="font-semibold text-white">
+                    <Link
+                      to={`/bugs/${bug.id}`}
+                      className="underline decoration-white/20 underline-offset-4 hover:decoration-neon-mint/60 hover:text-neon-mint"
+                    >
+                      {bug.title}
+                    </Link>
+                  </td>
+                  <td>{bug.classified_component}</td>
+                  <td>
+                    <span className={getSeverityClass(bug.classified_severity)}>
+                      {bug.classified_severity}
+                    </span>
+                  </td>
+                  <td className="text-white/70">{bug.assigned_team || "n/a"}</td>
+                  <td>
+                    <span className="badge">{bug.status}</span>
+                  </td>
+                </tr>
+              ))}
+              {filtered.length === 0 && (
+                <tr>
+                  <td className="py-8 text-center text-white/70" colSpan={5}>
+                    No results match this filter.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }

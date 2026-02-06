@@ -4,6 +4,8 @@ import { Link, useParams } from "react-router-dom";
 
 import { bugsApi } from "../api/bugs";
 import { BackLink } from "../components/BackLink";
+import { LoadingState } from "../components/ui/LoadingState";
+import { Spinner } from "../components/ui/Spinner";
 import type { BugReport } from "../types";
 
 type GitHubComment = {
@@ -134,10 +136,7 @@ export default function BugDetail() {
     return (
       <div className="space-y-6">
         <BackLink to="/bugs" label="Back to Bugs" />
-        <div className="surface-solid p-6">
-          <h1 className="text-2xl font-extrabold tracking-tight text-white">Bug</h1>
-          <p className="mt-1 text-sm text-white/60">Loading...</p>
-        </div>
+        <LoadingState variant="detail" />
       </div>
     );
   }
@@ -307,7 +306,14 @@ export default function BugDetail() {
                 onClick={onSaveWorkflow}
                 disabled={updateBugMutation.isPending}
               >
-                {updateBugMutation.isPending ? "Saving..." : "Save"}
+                {updateBugMutation.isPending ? (
+                  <span className="flex items-center gap-2">
+                    <Spinner size="sm" />
+                    Saving...
+                  </span>
+                ) : (
+                  "Save"
+                )}
               </button>
               {updateBugMutation.isError ? (
                 <div className="text-sm text-rose-200">

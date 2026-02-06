@@ -1,9 +1,10 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 
 import { API_BASE } from "../api/client";
 import { profileApi, type ProfileUpdate } from "../api/profile";
 import { useAuth } from "../hooks/useAuth";
+import { Spinner } from "../components/ui/Spinner";
 
 function parseAllowlist(value: string) {
   return value
@@ -11,6 +12,13 @@ function parseAllowlist(value: string) {
     .map((item) => item.trim())
     .filter(Boolean);
 }
+
+type ProfileFlags = {
+  enable_scan_push: boolean;
+  enable_scan_pr: boolean;
+  enable_issue_ingest: boolean;
+  enable_issue_comment_ingest: boolean;
+};
 
 export default function Profile() {
   const { user } = useAuth();
@@ -23,29 +31,20 @@ export default function Profile() {
   const [tokenTouched, setTokenTouched] = useState(false);
   const [webhookSecret, setWebhookSecret] = useState("");
   const [secretTouched, setSecretTouched] = useState(false);
-  const [allowlist, setAllowlist] = useState("");
+  const [allowlistDraft, setAllowlistDraft] = useState<string | null>(null);
   const [allowlistTouched, setAllowlistTouched] = useState(false);
-  const [initialized, setInitialized] = useState(false);
   const [copyMessage, setCopyMessage] = useState<string | null>(null);
-  const [flags, setFlags] = useState({
-    enable_scan_push: true,
-    enable_scan_pr: true,
-    enable_issue_ingest: true,
-    enable_issue_comment_ingest: true,
-  });
+  const [flagsDraft, setFlagsDraft] = useState<ProfileFlags | null>(null);
 
-  useEffect(() => {
-    if (!data || initialized) return;
-    setFlags({
-      enable_scan_push: data.settings.enable_scan_push,
-      enable_scan_pr: data.settings.enable_scan_pr,
-      enable_issue_ingest: data.settings.enable_issue_ingest,
-      enable_issue_comment_ingest: data.settings.enable_issue_comment_ingest,
-    });
-    setAllowlist(data.settings.github_allowlist.join("\n"));
-    setAllowlistTouched(false);
-    setInitialized(true);
-  }, [data, initialized]);
+  const flags: ProfileFlags = flagsDraft ?? {
+    enable_scan_push: data?.settings.enable_scan_push ?? true,
+    enable_scan_pr: data?.settings.enable_scan_pr ?? true,
+    enable_issue_ingest: data?.settings.enable_issue_ingest ?? true,
+    enable_issue_comment_ingest: data?.settings.enable_issue_comment_ingest ?? true,
+  };
+
+  const allowlist =
+    allowlistDraft ?? data?.settings.github_allowlist.join("\n") ?? "";
 
   const updateProfile = useMutation({
     mutationFn: async () => {
@@ -68,9 +67,9 @@ export default function Profile() {
       setWebhookSecret("");
       setTokenTouched(false);
       setSecretTouched(false);
-      setAllowlist(next.settings.github_allowlist.join("\n"));
+      setAllowlistDraft(next.settings.github_allowlist.join("\n"));
       setAllowlistTouched(false);
-      setFlags({
+      setFlagsDraft({
         enable_scan_push: next.settings.enable_scan_push,
         enable_scan_pr: next.settings.enable_scan_pr,
         enable_issue_ingest: next.settings.enable_issue_ingest,
@@ -188,8 +187,8 @@ export default function Profile() {
                 className="checkbox"
                 checked={flags.enable_scan_push}
                 onChange={(event) =>
-                  setFlags((prev) => ({
-                    ...prev,
+                  setFlagsDraft((prev) => ({
+                    ...(prev ?? flags),
                     enable_scan_push: event.target.checked,
                   }))
                 }
@@ -202,8 +201,8 @@ export default function Profile() {
                 className="checkbox"
                 checked={flags.enable_scan_pr}
                 onChange={(event) =>
-                  setFlags((prev) => ({
-                    ...prev,
+                  setFlagsDraft((prev) => ({
+                    ...(prev ?? flags),
                     enable_scan_pr: event.target.checked,
                   }))
                 }
@@ -216,8 +215,8 @@ export default function Profile() {
                 className="checkbox"
                 checked={flags.enable_issue_ingest}
                 onChange={(event) =>
-                  setFlags((prev) => ({
-                    ...prev,
+                  setFlagsDraft((prev) => ({
+                    ...(prev ?? flags),
                     enable_issue_ingest: event.target.checked,
                   }))
                 }
@@ -230,8 +229,8 @@ export default function Profile() {
                 className="checkbox"
                 checked={flags.enable_issue_comment_ingest}
                 onChange={(event) =>
-                  setFlags((prev) => ({
-                    ...prev,
+                  setFlagsDraft((prev) => ({
+                    ...(prev ?? flags),
                     enable_issue_comment_ingest: event.target.checked,
                   }))
                 }
@@ -370,7 +369,7 @@ export default function Profile() {
             placeholder={"org/repo\nhttps://github.com/org/repo\nowner/another-repo"}
             value={allowlist}
             onChange={(event) => {
-              setAllowlist(event.target.value);
+              setAllowlistDraft(event.target.value);
               setAllowlistTouched(true);
             }}
           />
@@ -386,7 +385,14 @@ export default function Profile() {
             onClick={() => updateProfile.mutate()}
             disabled={updateProfile.isPending || !hasChanges}
           >
-            {updateProfile.isPending ? "Saving..." : "Save settings"}
+            {updateProfile.isPending ? (
+              <span className="flex items-center gap-2">
+                <Spinner size="sm" />
+                Saving...
+              </span>
+            ) : (
+              "Save settings"
+            )}
           </button>
           {!hasChanges ? (
             <span className="text-sm text-white/50">No changes to save.</span>

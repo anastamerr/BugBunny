@@ -8,6 +8,8 @@ import { repositoriesApi } from "../api/repositories";
 import { ApiError } from "../api/errors";
 import { scansApi } from "../api/scans";
 import { ConfirmDialog } from "../components/ConfirmDialog";
+import { Spinner } from "../components/ui/Spinner";
+import { formatRepoName as formatRepoNameUtil } from "../utils/formatting";
 import type { Scan } from "../types";
 import { pushToast } from "../components/feedback/toastBus";
 
@@ -63,17 +65,7 @@ const PAUSED_CONFIG = { color: "text-amber-300", bgColor: "bg-amber-300", label:
 // ============================================================================
 
 function formatRepoName(url?: string | null): string {
-  if (!url) return "DAST Target";
-  try {
-    const parsed = new URL(url);
-    const parts = parsed.pathname.split("/").filter(Boolean);
-    if (parts.length >= 2) {
-      return `${parts[parts.length - 2]}/${parts[parts.length - 1]}`;
-    }
-  } catch {
-    return url;
-  }
-  return url;
+  return formatRepoNameUtil(url);
 }
 
 function formatDate(value?: string): string {
@@ -123,7 +115,7 @@ function formatPhaseLabel(value?: string | null): string | null {
     "dast.targeted": "DAST - targeted",
     correlation: "Correlation",
   };
-  return labels[value] || value.replace(/[_\.]/g, " ");
+  return labels[value] || value.replace(/[_.]/g, " ");
 }
 
 const DAST_VERIFICATION_LABELS: Record<string, string> = {
@@ -144,7 +136,7 @@ const DAST_VERIFICATION_STYLES: Record<string, string> = {
 function getDastVerificationBadge(value?: string | null) {
   if (!value || value === "not_applicable") return null;
   return {
-    label: DAST_VERIFICATION_LABELS[value] || `DAST ${value.replace(/[_\.]/g, " ")}`,
+    label: DAST_VERIFICATION_LABELS[value] || `DAST ${value.replace(/[_.]/g, " ")}`,
     className: DAST_VERIFICATION_STYLES[value] || "badge",
   };
 }
@@ -402,7 +394,7 @@ function ScanCard({
             {onDelete ? (
               <button
                 type="button"
-                className="btn-ghost text-rose-300 hover:text-rose-200"
+                className="btn-danger"
                 onClick={() => {
                   if (!canDelete || isDeleting) return;
                   onDelete(scan.id);
@@ -414,7 +406,14 @@ function ScanCard({
                     : "Delete is available when pending, paused, completed, or failed"
                 }
               >
-                {isDeleting ? "Deleting..." : "Delete"}
+                {isDeleting ? (
+                  <span className="flex items-center gap-2">
+                    <Spinner size="sm" />
+                    Deleting...
+                  </span>
+                ) : (
+                  "Delete"
+                )}
               </button>
             ) : null}
 
@@ -843,11 +842,10 @@ export default function Scans() {
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [confirmScan, setConfirmScan] = useState<Scan | null>(null);
-  const [lastRefreshedAt, setLastRefreshedAt] = useState<Date | null>(null);
   const newScanRef = useRef<HTMLDivElement | null>(null);
 
   // Data Fetching
-  const { data, isLoading, error, refetch, isFetching } = useQuery({
+  const { data, isLoading, error, refetch, isFetching, dataUpdatedAt } = useQuery<Scan[]>({
     queryKey: ["scans"],
     queryFn: () => scansApi.list(),
     refetchInterval: (query) => {
@@ -858,10 +856,9 @@ export default function Scans() {
         ? 5000
         : false;
     },
-    onSuccess: () => {
-      setLastRefreshedAt(new Date());
-    },
   });
+
+  const lastRefreshedAt = dataUpdatedAt > 0 ? new Date(dataUpdatedAt) : null;
   const isAuthError = error instanceof ApiError && error.status === 401;
 
   const { data: repos } = useQuery({

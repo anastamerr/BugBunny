@@ -38,5 +38,7 @@ export function pushToast(payload: {
 
 export function subscribeToToasts(listener: ToastListener) {
   listeners.add(listener);
-  return () => listeners.delete(listener);
+  return () => {
+    listeners.delete(listener);
+  };
 }

@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 
 import { useAuth } from "../hooks/useAuth";
+import { Spinner } from "../components/ui/Spinner";
 
 export default function Register() {
   const { signUp, user } = useAuth();
@@ -71,10 +72,14 @@ export default function Register() {
 
             <form className="mt-6 space-y-4" onSubmit={handleSubmit}>
               <div>
-                <label className="text-xs font-semibold uppercase tracking-[0.2em] text-white/60">
+                <label
+                  htmlFor="register-email"
+                  className="text-xs font-semibold uppercase tracking-[0.2em] text-white/70"
+                >
                   Email
                 </label>
                 <input
+                  id="register-email"
                   className="input mt-2 w-full"
                   type="email"
                   autoComplete="email"
@@ -85,10 +90,14 @@ export default function Register() {
                 />
               </div>
               <div>
-                <label className="text-xs font-semibold uppercase tracking-[0.2em] text-white/60">
+                <label
+                  htmlFor="register-password"
+                  className="text-xs font-semibold uppercase tracking-[0.2em] text-white/70"
+                >
                   Password
                 </label>
                 <input
+                  id="register-password"
                   className="input mt-2 w-full"
                   type="password"
                   autoComplete="new-password"
@@ -99,12 +108,18 @@ export default function Register() {
                 />
               </div>
               {error ? (
-                <div className="rounded-card border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-xs text-rose-200">
+                <div
+                  role="alert"
+                  className="rounded-card border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-xs text-rose-200"
+                >
                   {error}
                 </div>
               ) : null}
               {message ? (
-                <div className="rounded-card border border-neon-mint/40 bg-neon-mint/10 px-3 py-2 text-xs text-neon-mint">
+                <div
+                  role="status"
+                  className="rounded-card border border-neon-mint/40 bg-neon-mint/10 px-3 py-2 text-xs text-neon-mint"
+                >
                   {message}
                 </div>
               ) : null}
@@ -113,7 +128,14 @@ export default function Register() {
                 className="btn-primary w-full"
                 disabled={isSubmitting}
               >
-                {isSubmitting ? "Creating..." : "Create account"}
+                {isSubmitting ? (
+                  <span className="flex items-center gap-2">
+                    <Spinner size="sm" />
+                    Creating...
+                  </span>
+                ) : (
+                  "Create account"
+                )}
               </button>
             </form>
 

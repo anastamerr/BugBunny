@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 
 import { useAuth } from "../hooks/useAuth";
+import { Spinner } from "../components/ui/Spinner";
 
 export default function Login() {
   const { signIn, user } = useAuth();
@@ -81,10 +82,14 @@ export default function Login() {
 
             <form className="mt-6 space-y-4" onSubmit={handleSubmit}>
               <div>
-                <label className="text-xs font-semibold uppercase tracking-[0.2em] text-white/60">
+                <label
+                  htmlFor="login-email"
+                  className="text-xs font-semibold uppercase tracking-[0.2em] text-white/70"
+                >
                   Email
                 </label>
                 <input
+                  id="login-email"
                   className="input mt-2 w-full"
                   type="email"
                   autoComplete="email"
@@ -95,10 +100,14 @@ export default function Login() {
                 />
               </div>
               <div>
-                <label className="text-xs font-semibold uppercase tracking-[0.2em] text-white/60">
+                <label
+                  htmlFor="login-password"
+                  className="text-xs font-semibold uppercase tracking-[0.2em] text-white/70"
+                >
                   Password
                 </label>
                 <input
+                  id="login-password"
                   className="input mt-2 w-full"
                   type="password"
                   autoComplete="current-password"
@@ -109,7 +118,10 @@ export default function Login() {
                 />
               </div>
               {error ? (
-                <div className="rounded-card border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-xs text-rose-200">
+                <div
+                  role="alert"
+                  className="rounded-card border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-xs text-rose-200"
+                >
                   {error}
                 </div>
               ) : null}
@@ -118,7 +130,14 @@ export default function Login() {
                 className="btn-primary w-full"
                 disabled={isSubmitting}
               >
-                {isSubmitting ? "Signing in..." : "Sign in"}
+                {isSubmitting ? (
+                  <span className="flex items-center gap-2">
+                    <Spinner size="sm" />
+                    Signing in...
+                  </span>
+                ) : (
+                  "Sign in"
+                )}
               </button>
             </form>
 

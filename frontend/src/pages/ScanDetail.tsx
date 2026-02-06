@@ -8,37 +8,16 @@ import { scansApi } from "../api/scans";
 import { BackLink } from "../components/BackLink";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { FindingCard } from "../components/FindingCard";
+import { Spinner } from "../components/ui/Spinner";
 import { groupFindingsForDisplay } from "../utils/dastGrouping";
+import { formatDate, formatClock, shortSha, formatList } from "../utils/formatting";
+import {
+  scanStatusClass as statusClass,
+  getDastVerificationBadge,
+  formatPhase,
+} from "../utils/severity";
 import type { Finding, Scan } from "../types";
 import { pushToast } from "../components/feedback/toastBus";
-
-function statusClass(status: Scan["status"]) {
-  switch (status) {
-    case "completed":
-      return "badge border-neon-mint/40 bg-neon-mint/10 text-neon-mint";
-    case "failed":
-      return "badge border-rose-400/40 bg-rose-400/10 text-rose-200";
-    case "analyzing":
-      return "badge border-amber-400/40 bg-amber-400/10 text-amber-200";
-    case "scanning":
-    case "cloning":
-      return "badge border-sky-400/40 bg-sky-400/10 text-sky-200";
-    case "pending":
-    default:
-      return "badge";
-  }
-}
-
-function formatDate(value?: string) {
-  if (!value) return "n/a";
-  const dt = new Date(value);
-  return Number.isNaN(dt.getTime()) ? "n/a" : dt.toLocaleString();
-}
-
-function formatClock(value?: Date | null) {
-  if (!value) return "n/a";
-  return value.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-}
 
 function formatReduction(scan: Scan) {
   if (!scan.total_findings) return "No findings yet";
@@ -48,60 +27,6 @@ function formatReduction(scan: Scan) {
       : 0;
   const pct = Math.round(Math.max(0, Math.min(1, ratio)) * 100);
   return `${scan.total_findings} to ${scan.filtered_findings} (${pct}% filtered)`;
-}
-
-function shortSha(value?: string | null) {
-  if (!value) return null;
-  const trimmed = value.trim();
-  return trimmed.length ? trimmed.slice(0, 7) : null;
-}
-
-function formatList(values?: string[] | null, emptyLabel = "none") {
-  if (!values || values.length === 0) return emptyLabel;
-  return values.join(", ");
-}
-
-const PHASE_LABELS: Record<string, string> = {
-  "sast.clone": "SAST - Cloning",
-  "sast.scan": "SAST - Semgrep",
-  "sast.analyze": "SAST - AI triage",
-  "dast.deploy": "DAST - Deploy",
-  "dast.verify": "DAST - Verification",
-  "dast.spider": "DAST - Spider",
-  "dast.active_scan": "DAST - Active scan",
-  "dast.alerts": "DAST - Alerts",
-  "dast.targeted": "DAST - Targeted checks",
-  correlation: "Correlation",
-  completed: "Completed",
-  failed: "Failed",
-};
-
-const DAST_VERIFICATION_LABELS: Record<string, string> = {
-  verified: "DAST verified",
-  unverified_url: "DAST unverified URL",
-  commit_mismatch: "DAST commit mismatch",
-  verification_error: "DAST verification error",
-  not_applicable: "DAST not applicable",
-};
-
-const DAST_VERIFICATION_STYLES: Record<string, string> = {
-  verified: "badge border-neon-mint/40 bg-neon-mint/10 text-neon-mint",
-  unverified_url: "badge border-amber-400/40 bg-amber-400/10 text-amber-200",
-  commit_mismatch: "badge border-rose-400/40 bg-rose-400/10 text-rose-200",
-  verification_error: "badge border-rose-400/40 bg-rose-400/10 text-rose-200",
-};
-
-function formatPhase(value?: string | null) {
-  if (!value) return null;
-  return PHASE_LABELS[value] || value.replace(/[_\.]/g, " ");
-}
-
-function getDastVerificationBadge(value?: string | null) {
-  if (!value || value === "not_applicable") return null;
-  return {
-    label: DAST_VERIFICATION_LABELS[value] || `DAST ${value.replace(/[_\.]/g, " ")}`,
-    className: DAST_VERIFICATION_STYLES[value] || "badge",
-  };
 }
 
 export default function ScanDetail() {
@@ -123,7 +48,7 @@ export default function ScanDetail() {
   const [pauseError, setPauseError] = useState<string | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
-  const [lastRefreshedAt, setLastRefreshedAt] = useState<Date | null>(null);
+  const [manualRefreshedAt, setManualRefreshedAt] = useState<Date | null>(null);
   const navigate = useNavigate();
 
   const {
@@ -131,17 +56,17 @@ export default function ScanDetail() {
     isLoading,
     error: scanError,
     refetch: refetchScan,
-  } = useQuery({
+    dataUpdatedAt: scanUpdatedAt,
+  } = useQuery<Scan>({
     queryKey: ["scans", id],
     queryFn: () => scansApi.getById(id as string),
     enabled: Boolean(id),
-    refetchInterval: (query) =>
-      query.state.data &&
-      ["pending", "cloning", "scanning", "analyzing"].includes(query.state.data.status)
+    refetchInterval: (query) => {
+      const status = query.state.data?.status;
+      return status &&
+        ["pending", "cloning", "scanning", "analyzing"].includes(status)
         ? 8000
-        : false,
-    onSuccess: () => {
-      setLastRefreshedAt(new Date());
+        : false;
     },
   });
 
@@ -150,7 +75,8 @@ export default function ScanDetail() {
     isLoading: findingsLoading,
     error: findingsError,
     refetch: refetchFindings,
-  } = useQuery({
+    dataUpdatedAt: findingsUpdatedAt,
+  } = useQuery<Finding[]>({
     queryKey: ["findings", id, includeFalsePositives],
     queryFn: () =>
       scansApi.getFindings(id as string, {
@@ -161,9 +87,6 @@ export default function ScanDetail() {
       scan && ["pending", "cloning", "scanning", "analyzing"].includes(scan.status)
         ? 8000
         : false,
-    onSuccess: () => {
-      setLastRefreshedAt(new Date());
-    },
   });
 
   const updateFinding = useMutation({
@@ -331,8 +254,17 @@ export default function ScanDetail() {
 
   const handleRefresh = async () => {
     await Promise.all([refetchScan(), refetchFindings()]);
-    setLastRefreshedAt(new Date());
+    setManualRefreshedAt(new Date());
   };
+
+  const latestQueryRefresh = Math.max(scanUpdatedAt, findingsUpdatedAt);
+  const queryRefreshedAt =
+    latestQueryRefresh > 0 ? new Date(latestQueryRefresh) : null;
+  const lastRefreshedAt =
+    manualRefreshedAt &&
+    (!queryRefreshedAt || manualRefreshedAt > queryRefreshedAt)
+      ? manualRefreshedAt
+      : queryRefreshedAt;
 
   const stats = useMemo(() => {
     const total = scan?.total_findings ?? 0;
@@ -685,7 +617,7 @@ export default function ScanDetail() {
             </button>
             <button
               type="button"
-              className="btn-ghost text-rose-300 hover:text-rose-200"
+              className="btn-danger"
               onClick={() => {
                 if (!canDelete || deleteScan.isPending) return;
                 setConfirmDeleteOpen(true);
@@ -697,7 +629,14 @@ export default function ScanDetail() {
                   : "Delete is available when pending, paused, completed, or failed"
               }
             >
-              {deleteScan.isPending ? "Deleting..." : "Delete"}
+              {deleteScan.isPending ? (
+                <span className="flex items-center gap-2">
+                  <Spinner size="sm" />
+                  Deleting...
+                </span>
+              ) : (
+                "Delete"
+              )}
             </button>
             <button
               type="button"
@@ -713,26 +652,7 @@ export default function ScanDetail() {
               }
             >
               {isDownloadingReport ? (
-                <svg
-                  className="h-4 w-4 animate-spin"
-                  xmlns="http://www.w3.org/2000/svg"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                >
-                  <circle
-                    className="opacity-25"
-                    cx="12"
-                    cy="12"
-                    r="10"
-                    stroke="currentColor"
-                    strokeWidth="4"
-                  />
-                  <path
-                    className="opacity-75"
-                    fill="currentColor"
-                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-                  />
-                </svg>
+                <Spinner size="md" />
               ) : (
                 <svg
                   className="h-4 w-4"

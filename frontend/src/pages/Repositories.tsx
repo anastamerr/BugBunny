@@ -1,23 +1,14 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { FolderGit2 } from "lucide-react";
 
 import { repositoriesApi } from "../api/repositories";
 import { scansApi } from "../api/scans";
+import { EmptyState } from "../components/ui/EmptyState";
+import { LoadingState } from "../components/ui/LoadingState";
+import { Spinner } from "../components/ui/Spinner";
+import { formatRepoName } from "../utils/formatting";
 import type { Repository } from "../types";
-
-function formatRepoName(url: string, fallback?: string | null) {
-  if (fallback) return fallback;
-  try {
-    const parsed = new URL(url);
-    const parts = parsed.pathname.split("/").filter(Boolean);
-    if (parts.length >= 2) {
-      return `${parts[parts.length - 2]}/${parts[parts.length - 1]}`;
-    }
-  } catch {
-    return url;
-  }
-  return url;
-}
 
 function isValidRepoInput(value: string) {
   if (!value) return false;
@@ -90,7 +81,7 @@ export default function Repositories() {
 
   const repoValid = isValidRepoInput(repoUrl.trim());
 
-  const repos = data || [];
+  const repos = useMemo(() => data ?? [], [data]);
   const filteredRepos = useMemo(() => {
     const normalized = query.trim().toLowerCase();
     if (!normalized) return repos;
@@ -150,7 +141,14 @@ export default function Repositories() {
             onClick={() => createRepo.mutate()}
             disabled={createRepo.isPending || !repoValid}
           >
-            {createRepo.isPending ? "Saving..." : "Add Repository"}
+            {createRepo.isPending ? (
+              <span className="flex items-center gap-2">
+                <Spinner size="sm" />
+                Saving...
+              </span>
+            ) : (
+              "Add Repository"
+            )}
           </button>
         </div>
         <div className="mt-3 text-sm text-white/50">
@@ -181,17 +179,14 @@ export default function Repositories() {
       </div>
 
       {error ? (
-        <div className="surface-solid p-4 text-sm text-rose-200">
+        <div role="alert" className="surface-solid p-4 text-sm text-rose-200">
           {error instanceof Error ? error.message : "Unable to load repositories."}
         </div>
       ) : null}
 
       <div className="space-y-4">
         {isLoading ? (
-          <div className="surface-solid animate-pulse p-6">
-            <div className="h-4 w-52 rounded-pill bg-white/10" />
-            <div className="mt-3 h-3 w-72 rounded-pill bg-white/5" />
-          </div>
+          <LoadingState variant="card" count={3} />
         ) : null}
 
         {filteredRepos.map((repo) => (
@@ -201,13 +196,13 @@ export default function Repositories() {
                 <div className="text-lg font-semibold text-white">
                   {formatRepoName(repo.repo_url, repo.repo_full_name)}
                 </div>
-                <div className="mt-1 break-all text-xs text-white/60">
+                <div className="mt-1 break-all text-xs text-white/70">
                   {repo.repo_url}
                 </div>
-                <div className="mt-2 text-xs text-white/50">
+                <div className="mt-2 text-xs text-white/60">
                   Default branch: {repo.default_branch}
                 </div>
-                <div className="mt-1 text-[11px] text-white/40">
+                <div className="mt-1 text-[11px] text-white/50">
                   Updated {new Date(repo.updated_at).toLocaleString()}
                 </div>
               </div>
@@ -218,15 +213,29 @@ export default function Repositories() {
                   onClick={() => triggerScan.mutate(repo)}
                   disabled={triggerScan.isPending}
                 >
-                  Scan now
+                  {triggerScan.isPending ? (
+                    <span className="flex items-center gap-2">
+                      <Spinner size="sm" />
+                      Scanning...
+                    </span>
+                  ) : (
+                    "Scan now"
+                  )}
                 </button>
                 <button
                   type="button"
-                  className="btn-ghost text-rose-200 hover:text-rose-100"
+                  className="btn-danger"
                   onClick={() => removeRepo.mutate(repo.id)}
                   disabled={removeRepo.isPending}
                 >
-                  Remove
+                  {removeRepo.isPending ? (
+                    <span className="flex items-center gap-2">
+                      <Spinner size="sm" />
+                      Removing...
+                    </span>
+                  ) : (
+                    "Remove"
+                  )}
                 </button>
               </div>
             </div>
@@ -234,14 +243,17 @@ export default function Repositories() {
         ))}
 
         {repos.length === 0 && !isLoading && !error ? (
-          <div className="surface-solid p-6 text-sm text-white/60">
-            No repositories saved yet. Add one above to start tracking scans.
-          </div>
+          <EmptyState
+            icon={<FolderGit2 className="h-16 w-16" />}
+            title="No repositories saved"
+            description="Add a repository above to start tracking and scanning."
+          />
         ) : null}
         {repos.length > 0 && filteredRepos.length === 0 && !isLoading && !error ? (
-          <div className="surface-solid p-6 text-sm text-white/60">
-            No repositories match this search.
-          </div>
+          <EmptyState
+            title="No repositories match this search"
+            description="Try adjusting your search query."
+          />
         ) : null}
       </div>
     </div>

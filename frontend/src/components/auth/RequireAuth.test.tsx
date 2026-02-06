@@ -1,4 +1,5 @@
 import { cleanup, render, screen } from "@testing-library/react";
+import type { User } from "@supabase/supabase-js";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -90,7 +91,7 @@ describe("RequireAuth", () => {
   it("renders children when user is authenticated", () => {
     mockUseAuth.mockReturnValue({
       ...baseAuth,
-      user: { id: "user-123", email: "test@example.com" } as any,
+      user: { id: "user-123", email: "test@example.com" } as unknown as User,
     });
 
     render(

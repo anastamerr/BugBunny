@@ -6,20 +6,8 @@ import { bugsApi } from "../api/bugs";
 import { scansApi } from "../api/scans";
 import { BugQueue } from "../components/dashboard/BugQueue";
 import { StatsCard } from "../components/dashboard/StatsCard";
-
-function formatRepoName(url?: string | null) {
-  if (!url) return "DAST target";
-  try {
-    const parsed = new URL(url);
-    const parts = parsed.pathname.split("/").filter(Boolean);
-    if (parts.length >= 2) {
-      return `${parts[parts.length - 2]}/${parts[parts.length - 1]}`;
-    }
-  } catch {
-    return url;
-  }
-  return url;
-}
+import { EmptyState } from "../components/ui/EmptyState";
+import { formatRepoName } from "../utils/formatting";
 
 function formatReduction(total: number, filtered: number) {
   if (!total) return "0%";
@@ -66,7 +54,7 @@ export default function Dashboard() {
             <div className="inline-flex items-center gap-2 rounded-pill border border-neon-mint/40 bg-neon-mint/10 px-3 py-1 text-xs font-semibold tracking-[0.2em] text-neon-mint">
               BUGBUNNY OPS
             </div>
-            <h1 className="mt-3 text-3xl font-extrabold tracking-tight text-white">
+            <h1 className="mt-3 text-2xl font-extrabold tracking-tight text-white md:text-3xl">
               Dashboard
             </h1>
             <p className="mt-2 max-w-2xl text-sm text-white/60">
@@ -151,17 +139,21 @@ export default function Dashboard() {
           </div>
           <div className="mt-4 space-y-3 text-sm">
             {scanList.length === 0 ? (
-              <div className="rounded-card border border-white/10 bg-surface p-4 text-sm text-white/60">
-                <div className="text-white/80">No scans yet.</div>
-                <div className="mt-3 flex flex-wrap gap-2">
-                  <Link to="/scans" className="btn-primary">
-                    Run a scan
-                  </Link>
-                  <Link to="/repos" className="btn-ghost">
-                    Add repository
-                  </Link>
-                </div>
-              </div>
+              <EmptyState
+                icon={<Radar className="h-16 w-16" />}
+                title="No scans yet"
+                description="Run your first security scan to identify vulnerabilities."
+                action={
+                  <div className="flex flex-wrap gap-2">
+                    <Link to="/scans" className="btn-primary">
+                      Run a scan
+                    </Link>
+                    <Link to="/repos" className="btn-ghost">
+                      Add repository
+                    </Link>
+                  </div>
+                }
+              />
             ) : (
               scanList.slice(0, 5).map((scan) => {
                 const headline = scan.repo_url

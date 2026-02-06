@@ -5,7 +5,6 @@ const supabaseAnonKey = import.meta.env
   .VITE_SUPABASE_ANON_KEY as string | undefined;
 
 if (!supabaseUrl || !supabaseAnonKey) {
-  // eslint-disable-next-line no-console
   console.warn(
     "Supabase credentials are missing. Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY.",
   );
