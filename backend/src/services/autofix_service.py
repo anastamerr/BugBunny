@@ -7,6 +7,7 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
+from urllib.parse import urlparse
 
 from ..config import get_settings
 from ..integrations.github_client import GitHubClient
@@ -600,23 +601,36 @@ class AutoFixService:
     def _extract_repo_full_name(self, value: str | None) -> Optional[str]:
         if not value:
             return None
+        raw = value.strip()
+        if not raw:
+            return None
 
-        if value.startswith("http://") or value.startswith("https://"):
-            try:
-                _, path = value.split("://", 1)
-                parts = path.split("/", 1)
-                if len(parts) == 2:
-                    path_part = parts[1].strip("/")
-                    segments = [s for s in path_part.split("/") if s]
-                    if len(segments) >= 2:
-                        return f"{segments[0]}/{segments[1]}"
-            except ValueError:
-                return None
+        if raw.startswith(("http://", "https://", "ssh://")):
+            parsed = urlparse(raw)
+            path_part = (parsed.path or "").strip("/")
+            segments = [s for s in path_part.split("/") if s]
+            if len(segments) >= 2:
+                owner = segments[0]
+                repo = segments[1]
+                if repo.endswith(".git"):
+                    repo = repo[:-4]
+                if owner and repo:
+                    return f"{owner}/{repo}"
 
-        match = re.search(r":(?P<owner>[^/]+)/(?P<repo>[^/]+)$", value)
+        match = re.search(r":(?P<owner>[^/\s:]+)/(?P<repo>[^/\s]+?)(?:\.git)?$", raw)
         if match:
             owner = match.group("owner")
             repo = match.group("repo")
+            if owner and repo:
+                return f"{owner}/{repo}"
+
+        slug_match = re.fullmatch(
+            r"(?P<owner>[^/\s]+)/(?P<repo>[^/\s]+?)(?:\.git)?",
+            raw,
+        )
+        if slug_match:
+            owner = slug_match.group("owner")
+            repo = slug_match.group("repo")
             if owner and repo:
                 return f"{owner}/{repo}"
 
