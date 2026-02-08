@@ -1,6 +1,8 @@
 from datetime import datetime, timezone
 import uuid
 
+from sqlalchemy.exc import SQLAlchemyError
+
 from src.api.deps import CurrentUser
 from src.api.routes import chat as chat_routes
 from src.models import BugReport, Scan
@@ -115,3 +117,46 @@ def test_chat_prompt_includes_project_memory_sections(db_sessionmaker, monkeypat
     assert "Scan summary for acme/widgets" in context
 
     session.close()
+
+
+def test_chat_prompt_safe_degrades_on_db_error(db_sessionmaker, monkeypatch):
+    session = db_sessionmaker()
+    user_id = uuid.uuid4()
+    payload = ChatRequest(
+        message="Is this exploitable?",
+        scan_id=uuid.uuid4(),
+    )
+    current_user = CurrentUser(id=user_id, email="tester@example.com")
+
+    def _boom(payload, db, current_user):  # noqa: ANN001
+        raise SQLAlchemyError("dns lookup failed")
+
+    monkeypatch.setattr(chat_routes, "_prepare_chat_prompt", _boom)
+
+    context, _system, prompt, focus_mode = chat_routes._prepare_chat_prompt_safe(
+        payload, session, current_user
+    )
+
+    assert focus_mode is True
+    assert "database context is temporarily unavailable" in context.lower()
+    assert "scan_id" in context
+    assert "REQUESTED SCOPE" in prompt
+    session.close()
+
+
+def test_chat_prompt_safe_degrades_when_probe_fails(monkeypatch):
+    user_id = uuid.uuid4()
+    payload = ChatRequest(message="What should I fix first?")
+    current_user = CurrentUser(id=user_id, email="tester@example.com")
+
+    class BrokenDB:
+        def execute(self, *_args, **_kwargs):  # noqa: ANN002, ANN003
+            raise SQLAlchemyError("timeout")
+
+    context, _system, prompt, focus_mode = chat_routes._prepare_chat_prompt_safe(
+        payload, BrokenDB(), current_user  # type: ignore[arg-type]
+    )
+
+    assert focus_mode is False
+    assert "database context is temporarily unavailable" in context.lower()
+    assert "USER QUESTION" in prompt

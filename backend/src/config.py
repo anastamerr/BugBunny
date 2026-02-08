@@ -14,6 +14,9 @@ except ImportError:  # pragma: no cover
 
 class Settings(BaseSettings):
     database_url: str = "postgresql://postgres:postgres@db:5432/scanguard"
+    # Postgres connection fails fast so request handlers can degrade quickly.
+    database_connect_timeout_seconds: int = 3
+    database_statement_timeout_ms: int = 15000
     # Optional override used only for Alembic migrations (e.g. Supabase Session Pooler).
     alembic_database_url: Optional[str] = None
     redis_url: str = "redis://redis:6379/0"

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from functools import lru_cache
 import json
+import logging
 from pathlib import Path
 from typing import AsyncGenerator, Optional
 import uuid
@@ -9,6 +10,8 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 import httpx
+from sqlalchemy import text
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from ...api.deps import CurrentUser, get_current_user, get_db
@@ -17,13 +20,13 @@ from ...integrations.pinecone_client import PineconeService
 from ...models import BugReport, Finding, Scan
 from ...schemas.chat import ChatRequest, ChatResponse
 from ...services.intelligence.llm_service import (
-    OllamaService,
     OpenRouterService,
     get_llm_service,
 )
 from ...services.scanner.project_memory import extract_repo_full_name, redact_text
 
 router = APIRouter(prefix="/chat", tags=["chat"])
+logger = logging.getLogger(__name__)
 
 BUG_SEMANTIC_TOP_K = 5
 BUG_SEMANTIC_SCORE_THRESHOLD = 0.72
@@ -631,6 +634,99 @@ def _prepare_chat_prompt(
     return context, system, prompt, focus_mode
 
 
+def _build_degraded_chat_prompt(payload: ChatRequest) -> tuple[str, str, str, bool]:
+    """Fallback prompt when database-backed context cannot be loaded."""
+    focus_mode = bool(payload.bug_id or payload.scan_id or payload.finding_id)
+    scope_lines = [
+        f"- bug_id: {payload.bug_id or 'n/a'}",
+        f"- scan_id: {payload.scan_id or 'n/a'}",
+        f"- finding_id: {payload.finding_id or 'n/a'}",
+    ]
+    context = (
+        "CONTEXT STATUS:\n"
+        "- Live database context is temporarily unavailable.\n"
+        "- Answer with best-effort guidance based on the user question.\n"
+        "REQUESTED SCOPE:\n"
+        + "\n".join(scope_lines)
+    )
+    system = (
+        "You are BugBunny, an assistant for security findings and bug triage.\n"
+        "Use the provided context if available. If context is limited, be explicit about assumptions,\n"
+        "and provide safe, actionable next steps.\n"
+        "Respond in Markdown."
+    )
+    if focus_mode:
+        prompt = (
+            f"{context}\n\n"
+            f"USER QUESTION:\n{payload.message}\n\n"
+            "Answer with:\n"
+            "1) What can be inferred from the request scope\n"
+            "2) What data is missing to confirm exploitability\n"
+            "3) Recommended verification steps\n"
+            "4) Immediate remediation guidance\n"
+        )
+    else:
+        prompt = (
+            f"{context}\n\n"
+            f"USER QUESTION:\n{payload.message}\n\n"
+            "Answer with:\n"
+            "1) Best-effort root cause hypothesis\n"
+            "2) Likely impact areas\n"
+            "3) Prioritized next actions\n"
+            "4) What context should be loaded once DB connectivity is restored\n"
+        )
+    return context, system, prompt, focus_mode
+
+
+def _prepare_chat_prompt_safe(
+    payload: ChatRequest,
+    db: Session,
+    current_user: CurrentUser,
+) -> tuple[str, str, str, bool]:
+    # Probe once so DB outages degrade quickly instead of timing out per-query.
+    try:
+        db.execute(text("SELECT 1"))
+    except SQLAlchemyError as exc:
+        logger.warning(
+            "Chat context degraded due to database probe error: %s: %s",
+            type(exc).__name__,
+            exc,
+        )
+        return _build_degraded_chat_prompt(payload)
+    except Exception as exc:
+        logger.exception("Unexpected chat database probe error; falling back: %s", exc)
+        return _build_degraded_chat_prompt(payload)
+
+    try:
+        return _prepare_chat_prompt(payload, db, current_user)
+    except HTTPException:
+        raise
+    except SQLAlchemyError as exc:
+        logger.warning(
+            "Chat context degraded due to database error: %s: %s",
+            type(exc).__name__,
+            exc,
+        )
+        return _build_degraded_chat_prompt(payload)
+    except Exception as exc:
+        logger.exception("Unexpected chat context error; falling back: %s", exc)
+        return _build_degraded_chat_prompt(payload)
+
+
+def _llm_failure_hint(exc: Exception) -> str:
+    if isinstance(exc, httpx.HTTPStatusError):
+        status = exc.response.status_code if exc.response is not None else None
+        if status == 402:
+            return "LLM provider returned 402 (billing/quota issue). Check your OpenRouter credits and plan."
+        if status == 401:
+            return "LLM provider rejected the API key (401). Verify OPEN_ROUTER_API_KEY."
+        if status == 429:
+            return "LLM provider rate limit reached (429). Retry shortly or lower request volume."
+        if status is not None:
+            return f"LLM provider returned HTTP {status}."
+    return f"LLM request failed: {type(exc).__name__}."
+
+
 def _sse_format(message: str) -> str:
     if message == "":
         return "data:\n\n"
@@ -693,87 +789,65 @@ async def _stream_openrouter(
                 yield chunk
 
 
-async def _stream_ollama(
-    client: httpx.AsyncClient,
-    settings,
-    prompt: str,
-    system: str,
-) -> AsyncGenerator[str, None]:
-    async with client.stream(
-        "POST",
-        f"{settings.ollama_host.rstrip('/')}/api/generate",
-        json={
-            "model": settings.ollama_model,
-            "prompt": prompt,
-            "system": system,
-            "stream": True,
-        },
-    ) as response:
-        response.raise_for_status()
-        async for line in response.aiter_lines():
-            if not line:
-                continue
-            try:
-                payload = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            chunk = payload.get("response")
-            if isinstance(chunk, str) and chunk:
-                yield chunk
-            if payload.get("done"):
-                break
-
-
 @router.post("/stream")
 async def chat_stream(
     payload: ChatRequest,
     current_user: CurrentUser = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> StreamingResponse:
-    context, system, prompt, _focus_mode = _prepare_chat_prompt(
-        payload, db, current_user
-    )
     settings = get_settings()
     llm = get_llm_service(settings)
+    active_llm = llm
 
-    llm_available = await llm.is_available()
+    llm_available = await active_llm.is_available()
     headers = {
         "Cache-Control": "no-cache",
         "X-Accel-Buffering": "no",
-        "X-LLM-Provider": getattr(llm, "provider", "unknown"),
+        "X-LLM-Provider": getattr(active_llm, "provider", "unknown"),
     }
-    if hasattr(llm, "model"):
-        headers["X-LLM-Model"] = llm.model
+    if hasattr(active_llm, "model"):
+        headers["X-LLM-Model"] = active_llm.model
     headers["X-LLM-Used"] = "true" if llm_available else "false"
 
     async def event_stream() -> AsyncGenerator[str, None]:
+        # Flush headers immediately so UI doesn't look stalled while context loads.
+        yield ": ping\n\n"
+
+        try:
+            context, system, prompt, _focus_mode = _prepare_chat_prompt_safe(
+                payload, db, current_user
+            )
+        except HTTPException as exc:
+            detail = exc.detail if isinstance(exc.detail, str) else "Unable to load context."
+            yield _sse_format(detail)
+            yield _sse_format("[DONE]")
+            return
+
         if not llm_available:
             fallback = (
-                "LLM is unavailable. Configure OPEN_ROUTER_API_KEY or start Ollama.\n"
+                "LLM is unavailable. Configure OPEN_ROUTER_API_KEY.\n"
                 + (f"\nContext:\n{context}\n" if context else "")
             ).strip()
             yield _sse_format(fallback)
             yield _sse_format("[DONE]")
             return
 
-        async with httpx.AsyncClient(timeout=None) as client:
+        stream_timeout = httpx.Timeout(connect=10.0, read=45.0, write=45.0, pool=10.0)
+        async with httpx.AsyncClient(timeout=stream_timeout) as client:
             try:
-                if isinstance(llm, OpenRouterService):
+                if isinstance(active_llm, OpenRouterService):
                     async for chunk in _stream_openrouter(
                         client, settings, prompt, system
                     ):
                         yield _sse_format(chunk)
-                elif isinstance(llm, OllamaService):
-                    async for chunk in _stream_ollama(client, settings, prompt, system):
-                        yield _sse_format(chunk)
                 else:
-                    text = await llm.generate(prompt, system=system)
+                    text = await active_llm.generate(prompt, system=system)
                     if text:
                         yield _sse_format(text)
                 yield _sse_format("[DONE]")
             except Exception as exc:
                 fallback = (
-                    f"LLM request failed: {type(exc).__name__}. "
+                    f"{_llm_failure_hint(exc)} "
                     "Check your LLM provider settings and retry.\n"
                     + (f"\nContext:\n{context}\n" if context else "")
                 ).strip()
@@ -789,26 +863,27 @@ async def chat(
     current_user: CurrentUser = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> ChatResponse:
-    context, system, prompt, _focus_mode = _prepare_chat_prompt(
+    context, system, prompt, _focus_mode = _prepare_chat_prompt_safe(
         payload, db, current_user
     )
 
     settings = get_settings()
     llm = get_llm_service(settings)
+    active_llm = llm
 
     try:
-        if not await llm.is_available():
+        if not await active_llm.is_available():
             fallback = (
-                "LLM is unavailable. Configure OPEN_ROUTER_API_KEY or start Ollama.\n"
+                "LLM is unavailable. Configure OPEN_ROUTER_API_KEY.\n"
                 + (f"\nContext:\n{context}\n" if context else "")
             ).strip()
             return ChatResponse(response=fallback, used_llm=False, model=None)
 
-        text = await llm.generate(prompt, system=system)
-        return ChatResponse(response=text, used_llm=True, model=llm.model)
+        text = await active_llm.generate(prompt, system=system)
+        return ChatResponse(response=text, used_llm=True, model=active_llm.model)
     except Exception as exc:
         fallback = (
-            f"LLM request failed: {type(exc).__name__}. "
+            f"{_llm_failure_hint(exc)} "
             "Check your LLM provider settings and retry.\n"
             + (f"\nContext:\n{context}\n" if context else "")
         ).strip()
