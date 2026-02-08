@@ -5,6 +5,7 @@ import hashlib
 import ipaddress
 import logging
 import uuid
+from datetime import datetime, timezone
 from urllib.parse import urlparse
 from typing import TYPE_CHECKING, Optional
 
@@ -13,7 +14,7 @@ from sqlalchemy.orm import Session
 logger = logging.getLogger(__name__)
 
 from ...db.session import SessionLocal
-from ...models import Finding, Scan, UserSettings
+from ...models import BugReport, Finding, Repository, Scan, UserSettings
 from ...realtime import sio
 from .ai_triage import AITriageEngine
 from .correlation import correlate_findings
@@ -747,6 +748,14 @@ async def run_scan_pipeline(
             )
 
         db.commit()
+        try:
+            _upsert_verified_combined_bugs(db, scan_id)
+        except Exception as exc:
+            logger.exception(
+                "Failed to sync verified combined findings to bugs for scan %s: %s",
+                scan_id,
+                exc,
+            )
 
         total_findings = (
             len(triaged)
@@ -1066,3 +1075,185 @@ def _build_dedupe_key(*parts: Optional[str]) -> str:
     )
     digest = hashlib.sha256(normalized.encode("utf-8")).hexdigest()
     return digest
+
+
+def _upsert_verified_combined_bugs(db: Session, scan_id: uuid.UUID) -> int:
+    scan = db.query(Scan).filter(Scan.id == scan_id).first()
+    if not scan or scan.scan_type != "both":
+        return 0
+
+    repo = None
+    if scan.repo_id:
+        repo = db.query(Repository).filter(Repository.id == scan.repo_id).first()
+
+    verified_findings = (
+        db.query(Finding)
+        .filter(
+            Finding.scan_id == scan.id,
+            Finding.finding_type == "sast",
+            Finding.confirmed_exploitable.is_(True),
+            Finding.dast_verification_status == "confirmed_exploitable",
+        )
+        .all()
+    )
+    if not verified_findings:
+        return 0
+
+    now = datetime.now(timezone.utc)
+    upserted = 0
+    for finding in verified_findings:
+        bug_id = _build_verified_bug_id(scan, finding)
+        bug = db.query(BugReport).filter(BugReport.bug_id == bug_id).first()
+
+        title = _build_verified_bug_title(scan, repo, finding)
+        description = _build_verified_bug_description(scan, finding)
+        labels = _build_verified_bug_labels(scan, repo, finding)
+        component = _infer_bug_component(finding.file_path)
+        severity = _to_bug_severity(finding.ai_severity, finding.semgrep_severity)
+        confidence = _to_confidence(finding.ai_confidence)
+
+        if bug is None:
+            bug = BugReport(
+                bug_id=bug_id,
+                source="manual",
+                title=title,
+                description=description,
+                created_at=now,
+                reporter="bugbunny-scanner",
+                labels=labels,
+                classified_type="bug",
+                classified_component=component,
+                classified_severity=severity,
+                confidence_score=confidence,
+                is_duplicate=False,
+                assigned_team="security",
+                status="new",
+            )
+        else:
+            bug.title = title
+            bug.description = description
+            bug.labels = labels
+            bug.classified_type = "bug"
+            bug.classified_component = component
+            bug.classified_severity = severity
+            bug.confidence_score = confidence
+            if not bug.assigned_team:
+                bug.assigned_team = "security"
+
+        db.add(bug)
+        upserted += 1
+
+    if upserted:
+        db.commit()
+
+    return upserted
+
+
+def _build_verified_bug_id(scan: Scan, finding: Finding) -> str:
+    repo_ref = str(scan.repo_id) if scan.repo_id else (scan.repo_url or "")
+    finding_ref = finding.dedupe_key or (
+        f"{finding.rule_id}|{finding.file_path}|{finding.line_start}|{finding.line_end}"
+    )
+    digest = hashlib.sha256(
+        f"{scan.user_id}|{repo_ref}|{finding_ref}".encode("utf-8")
+    ).hexdigest()
+    return f"verified-sast-dast:{digest[:32]}"
+
+
+def _build_verified_bug_title(
+    scan: Scan,
+    repo: Optional[Repository],
+    finding: Finding,
+) -> str:
+    repo_name = _repo_display_name(scan, repo)
+    message = (finding.rule_message or finding.rule_id or "Security finding").strip()
+    return f"[Verified SAST+DAST] {repo_name}: {message}"
+
+
+def _build_verified_bug_description(scan: Scan, finding: Finding) -> str:
+    location = f"{finding.file_path}:{finding.line_start}"
+    parts = [
+        f"Confirmed exploitable in scan {scan.id}.",
+        f"Rule: {finding.rule_id}",
+        f"Location: {location}",
+    ]
+    if finding.exploitability:
+        parts.append(f"Exploitability: {finding.exploitability.strip()}")
+    if finding.ai_reasoning:
+        parts.append(f"AI reasoning: {finding.ai_reasoning.strip()}")
+    if finding.curl_command:
+        parts.append(f"Repro command: {finding.curl_command.strip()}")
+    if scan.target_url:
+        parts.append(f"Target URL: {scan.target_url}")
+    return "\n".join(parts)
+
+
+def _build_verified_bug_labels(
+    scan: Scan,
+    repo: Optional[Repository],
+    finding: Finding,
+) -> dict[str, str]:
+    labels = {
+        "kind": "verified_sast_dast",
+        "scan_id": str(scan.id),
+        "finding_id": str(finding.id),
+        "rule_id": finding.rule_id,
+        "file_path": finding.file_path,
+        "line_start": str(finding.line_start),
+        "line_end": str(finding.line_end),
+        "dast_verification_status": finding.dast_verification_status or "",
+        "repo_url": scan.repo_url or "",
+        "target_url": scan.target_url or "",
+    }
+    if scan.repo_id:
+        labels["repo_id"] = str(scan.repo_id)
+    if repo and repo.repo_full_name:
+        labels["repo_full_name"] = repo.repo_full_name
+    return labels
+
+
+def _infer_bug_component(file_path: Optional[str]) -> str:
+    if not file_path:
+        return "security"
+    normalized = file_path.strip().replace("\\", "/")
+    if not normalized:
+        return "security"
+    segment = normalized.split("/", 1)[0]
+    if segment in {".", ".."}:
+        return "security"
+    return segment or "security"
+
+
+def _to_bug_severity(ai_severity: Optional[str], semgrep_severity: Optional[str]) -> str:
+    normalized_ai = (ai_severity or "").lower()
+    if normalized_ai in {"critical", "high", "medium", "low"}:
+        return normalized_ai
+    if normalized_ai == "info":
+        return "low"
+
+    normalized_semgrep = (semgrep_severity or "").upper()
+    if normalized_semgrep == "ERROR":
+        return "high"
+    if normalized_semgrep == "WARNING":
+        return "medium"
+    return "low"
+
+
+def _to_confidence(value: Optional[float]) -> float:
+    if not isinstance(value, (int, float)):
+        return 0.95
+    return max(0.0, min(1.0, float(value)))
+
+
+def _repo_display_name(scan: Scan, repo: Optional[Repository]) -> str:
+    if repo and repo.repo_full_name:
+        return repo.repo_full_name
+    if scan.repo_url:
+        normalized = scan.repo_url.strip().rstrip("/")
+        if normalized.endswith(".git"):
+            normalized = normalized[:-4]
+        segments = [segment for segment in normalized.split("/") if segment]
+        if len(segments) >= 2:
+            return f"{segments[-2]}/{segments[-1]}"
+        return normalized
+    return "repository"

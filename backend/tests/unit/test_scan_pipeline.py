@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from src.models import Finding, Scan
+from src.models import BugReport, Finding, Repository, Scan
 from src.services.scanner import scan_pipeline
 from src.services.scanner.types import CodeContext, RawFinding, TriagedFinding
 
@@ -560,6 +560,109 @@ async def test_combined_scan_runs_targeted_only(db_sessionmaker, tmp_path, monke
 
     assert calls["targeted"] is True
     assert calls["blind"] is False
+
+
+@pytest.mark.asyncio
+async def test_combined_scan_creates_verified_bug_reports(
+    db_sessionmaker, tmp_path, monkeypatch
+):
+    repo_path = tmp_path / "repo"
+    repo_path.mkdir()
+
+    monkeypatch.setattr(scan_pipeline, "RepoFetcher", lambda: DummyFetcher(repo_path))
+    monkeypatch.setattr(scan_pipeline, "SemgrepRunner", DummyRunner)
+    monkeypatch.setattr(scan_pipeline, "ContextExtractor", DummyExtractor)
+    monkeypatch.setattr(scan_pipeline, "AITriageEngine", DummyTriage)
+    monkeypatch.setattr(scan_pipeline, "FindingAggregator", DummyAggregator)
+    monkeypatch.setattr(scan_pipeline, "DependencyScanner", DummyDependencyScanner)
+    monkeypatch.setattr(
+        scan_pipeline, "DependencyHealthScanner", DummyDependencyHealthScanner
+    )
+    monkeypatch.setattr(scan_pipeline, "_get_pinecone", lambda: None)
+    monkeypatch.setattr(scan_pipeline, "sio", DummySio())
+    monkeypatch.setattr(scan_pipeline, "SessionLocal", lambda: db_sessionmaker())
+
+    class DummyVerifier:
+        async def verify_deployment(self, target_url, expected_sha):  # noqa: ANN001
+            return "verified", "ok"
+
+    class DummyDAST:
+        def __init__(self):
+            self.last_error = None
+
+        def is_available(self):
+            return True
+
+        async def scan(self, target_url, auth_headers=None, cookies=None, progress_cb=None):  # noqa: ANN001
+            return []
+
+    class DummyTargeted:
+        def __init__(self, **kwargs):  # noqa: ANN001
+            self.last_error = None
+
+        async def attack_findings(self, *args, **kwargs):  # noqa: ANN001
+            return []
+
+        def map_results_to_findings(self, triaged, results, repo_path):  # noqa: ANN001
+            triaged[0].dast_verification_status = "confirmed_exploitable"
+            triaged[0].confirmed_exploitable = True
+            triaged[0].dast_curl_command = "curl http://localhost:3000/vulnerable"
+            triaged[0].dast_endpoint = "http://localhost:3000"
+            triaged[0].dast_matched_at = "http://localhost:3000/vulnerable"
+            return triaged, 1
+
+    monkeypatch.setattr(scan_pipeline, "CommitVerifier", DummyVerifier)
+    monkeypatch.setattr(scan_pipeline, "DASTRunner", DummyDAST)
+    monkeypatch.setattr(scan_pipeline, "TargetedDASTRunner", DummyTargeted)
+
+    scan_id = uuid.uuid4()
+    user_id = uuid.uuid4()
+    repo_id = uuid.uuid4()
+    session = db_sessionmaker()
+    session.add(
+        Repository(
+            id=repo_id,
+            user_id=user_id,
+            repo_url="https://github.com/example/repo",
+            repo_full_name="example/repo",
+            default_branch="main",
+        )
+    )
+    session.add(
+        Scan(
+            id=scan_id,
+            user_id=user_id,
+            repo_id=repo_id,
+            repo_url="https://github.com/example/repo",
+            branch="main",
+            scan_type="both",
+            target_url="http://localhost:3000",
+            status="pending",
+            trigger="manual",
+        )
+    )
+    session.commit()
+    session.close()
+
+    await scan_pipeline.run_scan_pipeline(
+        scan_id=scan_id,
+        repo_url="https://github.com/example/repo",
+        branch="main",
+        scan_type="both",
+        target_url="http://localhost:3000",
+    )
+
+    verify = db_sessionmaker()
+    bugs = verify.query(BugReport).all()
+    verify.close()
+
+    assert len(bugs) == 1
+    assert bugs[0].source == "manual"
+    assert "[Verified SAST+DAST]" in bugs[0].title
+    assert isinstance(bugs[0].labels, dict)
+    assert bugs[0].labels.get("repo_id") == str(repo_id)
+    assert bugs[0].labels.get("scan_id") == str(scan_id)
+    assert bugs[0].labels.get("kind") == "verified_sast_dast"
 
 
 @pytest.mark.asyncio

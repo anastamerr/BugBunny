@@ -7,7 +7,7 @@ from fastapi.testclient import TestClient
 
 from src.api.deps import CurrentUser, get_current_user, get_db
 from src.main import app
-from src.models import Finding, Scan
+from src.models import Finding, Repository, Scan
 
 
 class DummySio:
@@ -65,6 +65,18 @@ def test_create_scan_creates_record(db_sessionmaker, monkeypatch):
     scan_id = uuid.UUID(payload["id"])
     scan = verify_db.query(Scan).filter(Scan.id == scan_id).first()
     assert scan is not None
+    assert scan.repo_id is not None
+
+    repo = (
+        verify_db.query(Repository)
+        .filter(
+            Repository.id == scan.repo_id,
+            Repository.user_id == TEST_USER_ID,
+        )
+        .first()
+    )
+    assert repo is not None
+    assert repo.repo_url == "https://github.com/example/repo"
     verify_db.close()
 
     assert called

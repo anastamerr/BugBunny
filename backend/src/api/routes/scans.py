@@ -4,6 +4,7 @@ import asyncio
 import inspect
 import logging
 import os
+import re
 import threading
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -13,6 +14,7 @@ from typing import List, Optional
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 from fastapi.responses import Response, StreamingResponse
 from sqlalchemy import case, desc
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from ...api.deps import CurrentUser, get_current_user, get_db
@@ -126,6 +128,41 @@ async def create_scan(
 
     if repo_url:
         repo_url = _normalize_repo_url(repo_url)
+        if payload.repo_id is None:
+            repository = (
+                db.query(Repository)
+                .filter(
+                    Repository.user_id == current_user.id,
+                    Repository.repo_url == repo_url,
+                )
+                .first()
+            )
+            if repository is None:
+                repository = Repository(
+                    user_id=current_user.id,
+                    repo_url=repo_url,
+                    repo_full_name=_extract_repo_full_name(repo_url),
+                    default_branch=branch,
+                )
+                db.add(repository)
+                try:
+                    db.flush()
+                except IntegrityError:
+                    db.rollback()
+                    repository = (
+                        db.query(Repository)
+                        .filter(
+                            Repository.user_id == current_user.id,
+                            Repository.repo_url == repo_url,
+                        )
+                        .first()
+                    )
+                    if repository is None:
+                        raise HTTPException(
+                            status_code=500,
+                            detail="Failed to save repository for scan",
+                        )
+            repo_id = repository.id
 
     settings = get_settings()
     if settings.scan_max_active:
@@ -719,3 +756,31 @@ def _parse_uuid(value: str, message: str) -> uuid.UUID:
 def _normalize_repo_url(value: str) -> str:
     trimmed = value.strip().rstrip("/")
     return trimmed[:-4] if trimmed.endswith(".git") else trimmed
+
+
+def _extract_repo_full_name(value: str) -> Optional[str]:
+    if not value:
+        return None
+
+    # HTTPS URLs (https://github.com/owner/repo)
+    if value.startswith("http://") or value.startswith("https://"):
+        try:
+            _, path = value.split("://", 1)
+            parts = path.split("/", 1)
+            if len(parts) == 2:
+                path_part = parts[1].strip("/")
+                segments = [segment for segment in path_part.split("/") if segment]
+                if len(segments) >= 2:
+                    return f"{segments[0]}/{segments[1]}"
+        except ValueError:
+            return None
+
+    # SSH URLs (git@github.com:owner/repo)
+    match = re.search(r":(?P<owner>[^/]+)/(?P<repo>[^/]+)$", value)
+    if match:
+        owner = match.group("owner")
+        repo = match.group("repo")
+        if owner and repo:
+            return f"{owner}/{repo}"
+
+    return None
