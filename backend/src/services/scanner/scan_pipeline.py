@@ -433,7 +433,9 @@ async def run_scan_pipeline(
             # For combined scans, prefer targeted DAST only.
             if scan_type == "dast":
                 if not dast_runner.is_available():
-                    dast_error = "DAST scan unavailable (ZAP/Docker is not running)."
+                    dast_error = (
+                        "DAST scan unavailable (ZAP runtime is not reachable from the backend service)."
+                    )
                 else:
                     await _report_phase(
                         "dast.active_scan",

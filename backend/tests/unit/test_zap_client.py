@@ -217,3 +217,77 @@ async def test_wait_status_rejects_negative_scan_id():
 
     with pytest.raises(ZapError):
         await session._wait_status("ascan", -1)
+
+
+@pytest.mark.asyncio
+async def test_start_falls_back_to_managed_when_external_unreachable(monkeypatch):
+    session = ZapDockerSession(
+        image="ghcr.io/zaproxy/zaproxy:stable",
+        api_key=None,
+        timeout_seconds=30,
+        request_timeout_seconds=5,
+        base_url="http://zap:8080",
+    )
+
+    calls = {"count": 0}
+
+    async def fake_wait_ready(timeout_seconds=None):  # noqa: ANN001
+        calls["count"] += 1
+        if calls["count"] == 1:
+            raise ZapError("external unreachable")
+        return None
+
+    monkeypatch.setattr(session, "_wait_ready", fake_wait_ready)
+    monkeypatch.setattr("src.services.scanner.zap_client.is_docker_available", lambda: True)
+
+    class Result:
+        def __init__(self, returncode=0, stdout="", stderr="") -> None:
+            self.returncode = returncode
+            self.stdout = stdout
+            self.stderr = stderr
+
+    def fake_run(cmd, *args, **kwargs):  # noqa: ANN001
+        if cmd[:2] == ["docker", "run"]:
+            return Result(returncode=0, stdout="fake-container-id\n")
+        if cmd[:2] == ["docker", "stop"]:
+            return Result(returncode=0, stdout="fake-container-id\n")
+        return Result(returncode=0)
+
+    monkeypatch.setattr("src.services.scanner.zap_client.subprocess.run", fake_run)
+
+    await session.start()
+    try:
+        assert calls["count"] == 2
+        assert session.container_id == "fake-container-id"
+        assert session.base_url is not None
+        assert session.base_url.startswith("http://127.0.0.1:")
+    finally:
+        await session.stop()
+
+
+@pytest.mark.asyncio
+async def test_start_raises_clear_error_when_external_unreachable_without_docker(
+    monkeypatch,
+):
+    session = ZapDockerSession(
+        image="ghcr.io/zaproxy/zaproxy:stable",
+        api_key=None,
+        timeout_seconds=30,
+        request_timeout_seconds=5,
+        base_url="http://zap:8080",
+    )
+
+    async def fake_wait_ready(timeout_seconds=None):  # noqa: ANN001
+        raise ZapError("name resolution failed")
+
+    monkeypatch.setattr(session, "_wait_ready", fake_wait_ready)
+    monkeypatch.setattr(
+        "src.services.scanner.zap_client.is_docker_available", lambda: False
+    )
+
+    with pytest.raises(ZapError) as excinfo:
+        await session.start()
+
+    message = str(excinfo.value)
+    assert "Configured ZAP runtime is unreachable at http://zap:8080" in message
+    assert "unset ZAP_BASE_URL to use managed Docker ZAP" in message

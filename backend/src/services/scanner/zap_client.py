@@ -22,7 +22,20 @@ class ZapError(RuntimeError):
 
 
 def is_docker_available() -> bool:
-    return shutil.which("docker") is not None
+    """Return True when Docker CLI exists and can reach a live daemon."""
+    if shutil.which("docker") is None:
+        return False
+    try:
+        result = subprocess.run(
+            ["docker", "info"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+            timeout=3,
+        )
+        return result.returncode == 0
+    except (OSError, subprocess.SubprocessError):
+        return False
 
 
 def _get_free_port() -> int:
@@ -121,6 +134,11 @@ class ZapDockerSession:
         self.container_name: Optional[str] = None
         self._client: Optional[httpx.AsyncClient] = None
 
+    def _external_ready_timeout(self) -> int:
+        # External ZAP daemons should fail fast if unreachable; do not wait
+        # for long scan timeouts intended for active scan polling.
+        return min(self.timeout_seconds, max(20, self.request_timeout_seconds * 2))
+
     async def __aenter__(self) -> "ZapDockerSession":
         await self.start()
         return self
@@ -130,6 +148,7 @@ class ZapDockerSession:
 
     async def start(self) -> None:
         if not self._managed_container:
+            configured_base_url = self.base_url or ""
             headers: Dict[str, str] = {}
             if self.host_header:
                 headers["Host"] = self.host_header
@@ -145,14 +164,36 @@ class ZapDockerSession:
                 self.request_timeout_seconds,
             )
             try:
-                await self._wait_ready()
-            except Exception:
+                await self._wait_ready(timeout_seconds=self._external_ready_timeout())
+            except Exception as exc:
                 await self.stop()
-                raise
-            return
+                if is_docker_available():
+                    logger.warning(
+                        "Configured ZAP_BASE_URL %s is unreachable (%s); "
+                        "falling back to managed Docker ZAP runtime.",
+                        configured_base_url,
+                        exc,
+                    )
+                    self.base_url = None
+                    self._managed_container = True
+                    # External host headers can break managed localhost access.
+                    self.host_header = None
+                else:
+                    raise ZapError(
+                        "Configured ZAP runtime is unreachable at "
+                        f"{configured_base_url}: {exc}. "
+                        "Ensure the ZAP service is running or unset ZAP_BASE_URL "
+                        "to use managed Docker ZAP.",
+                        "tooling",
+                    ) from exc
+            else:
+                return
 
         if not is_docker_available():
-            raise ZapError("Docker is not available for running ZAP.", "tooling")
+            raise ZapError(
+                "ZAP runtime is unavailable (Docker daemon is not reachable from this service).",
+                "tooling",
+            )
 
         port = self.host_port or _get_free_port()
         container_name = f"scanguard-zap-{uuid.uuid4().hex[:10]}"
@@ -286,8 +327,8 @@ class ZapDockerSession:
         self.container_id = None
         self.container_name = None
 
-    async def _wait_ready(self) -> None:
-        deadline = time.monotonic() + self.timeout_seconds
+    async def _wait_ready(self, timeout_seconds: Optional[int] = None) -> None:
+        deadline = time.monotonic() + (timeout_seconds or self.timeout_seconds)
         last_error: Optional[str] = None
         while time.monotonic() < deadline:
             try:
@@ -314,9 +355,11 @@ class ZapDockerSession:
         try:
             response = await self._client.get(path, params=payload)
         except httpx.TimeoutException as exc:
-            raise ZapError(f"ZAP API timeout: {exc}", "timeout") from exc
+            detail = str(exc).strip() or repr(exc)
+            raise ZapError(f"ZAP API timeout: {detail}", "timeout") from exc
         except httpx.RequestError as exc:
-            raise ZapError(f"ZAP API error: {exc}", "tooling") from exc
+            detail = str(exc).strip() or repr(exc)
+            raise ZapError(f"ZAP API error: {detail}", "tooling") from exc
 
         if response.status_code != 200:
             raise ZapError(

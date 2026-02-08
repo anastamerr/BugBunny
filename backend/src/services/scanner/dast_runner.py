@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Awaitable, Callable, Dict, List, Optional
 
@@ -33,7 +34,9 @@ class DASTRunner(BaseDASTRunner):
     ) -> List[DynamicFinding]:
         self.last_error = None
         if not self.is_available():
-            self.last_error = "Docker is not available for running ZAP."
+            self.last_error = (
+                "ZAP runtime is unavailable (Docker daemon is not reachable from this service)."
+            )
             return []
 
         # Apply default auth header from env if no explicit headers provided
@@ -50,65 +53,81 @@ class DASTRunner(BaseDASTRunner):
         effective_target, original_netloc, docker_netloc = dockerize_target_url(
             target_url
         )
-        try:
-            async with ZapDockerSession(
-                image=self.settings.zap_docker_image,
-                api_key=self.settings.zap_api_key,
-                timeout_seconds=self.settings.zap_timeout_seconds,
-                request_timeout_seconds=self.settings.zap_request_timeout_seconds,
-                extra_hosts=_parse_extra_hosts(self.settings.zap_docker_extra_hosts),
-                base_url=self.settings.zap_base_url,
-                host_port=self.settings.zap_host_port,
-                keepalive_seconds=self.settings.zap_keepalive_seconds,
-                host_header=self.settings.zap_host_header,
-            ) as zap:
-                async def _progress(phase: str, message: Optional[str] = None) -> None:
-                    if not progress_cb:
-                        return
+        max_attempts = 2
+        for attempt in range(1, max_attempts + 1):
+            try:
+                async with ZapDockerSession(
+                    image=self.settings.zap_docker_image,
+                    api_key=self.settings.zap_api_key,
+                    timeout_seconds=self.settings.zap_timeout_seconds,
+                    request_timeout_seconds=self.settings.zap_request_timeout_seconds,
+                    extra_hosts=_parse_extra_hosts(self.settings.zap_docker_extra_hosts),
+                    base_url=self.settings.zap_base_url,
+                    host_port=self.settings.zap_host_port,
+                    keepalive_seconds=self.settings.zap_keepalive_seconds,
+                    host_header=self.settings.zap_host_header,
+                ) as zap:
+                    async def _progress(
+                        phase: str, message: Optional[str] = None
+                    ) -> None:
+                        if not progress_cb:
+                            return
+                        try:
+                            await progress_cb(phase, message)
+                        except Exception as exc:  # pragma: no cover - best-effort
+                            logger.debug("DAST progress callback failed: %s", exc)
+
+                    rule_descriptions = await _apply_auth_headers(
+                        zap, effective_auth_headers, cookies
+                    )
                     try:
-                        await progress_cb(phase, message)
-                    except Exception as exc:  # pragma: no cover - best-effort
-                        logger.debug("DAST progress callback failed: %s", exc)
-
-                rule_descriptions = await _apply_auth_headers(
-                    zap, effective_auth_headers, cookies
-                )
-                try:
-                    await _progress("dast.spider", "Spidering target")
-                    spider_id = await zap.spider_scan(
-                        effective_target,
-                        max_children=self.settings.zap_max_depth,
-                        recurse=True,
-                    )
-                    await zap.wait_spider(spider_id)
-
-                    await _progress("dast.active_scan", "Active scanning target")
-                    scan_id = await zap.active_scan(
-                        url=effective_target,
-                        recurse=True,
-                        scan_policy_name=self.settings.zap_scan_policy,
-                    )
-                    await zap.wait_active(scan_id)
-
-                    await _progress("dast.alerts", "Collecting DAST alerts")
-                    alerts = await zap.alerts(base_url=effective_target)
-                finally:
-                    await _remove_auth_headers(zap, rule_descriptions)
-
-            findings: List[DynamicFinding] = []
-            for alert in alerts:
-                parsed = parse_zap_alert(alert, fallback_url=effective_target)
-                if parsed:
-                    findings.append(
-                        rewrite_finding_for_display(
-                            parsed, original_netloc, docker_netloc
+                        await _progress("dast.spider", "Spidering target")
+                        spider_id = await zap.spider_scan(
+                            effective_target,
+                            max_children=self.settings.zap_max_depth,
+                            recurse=True,
                         )
+                        await zap.wait_spider(spider_id)
+
+                        await _progress("dast.active_scan", "Active scanning target")
+                        scan_id = await zap.active_scan(
+                            url=effective_target,
+                            recurse=True,
+                            scan_policy_name=self.settings.zap_scan_policy,
+                        )
+                        await zap.wait_active(scan_id)
+
+                        await _progress("dast.alerts", "Collecting DAST alerts")
+                        alerts = await zap.alerts(base_url=effective_target)
+                    finally:
+                        await _remove_auth_headers(zap, rule_descriptions)
+
+                findings: List[DynamicFinding] = []
+                for alert in alerts:
+                    parsed = parse_zap_alert(alert, fallback_url=effective_target)
+                    if parsed:
+                        findings.append(
+                            rewrite_finding_for_display(
+                                parsed, original_netloc, docker_netloc
+                            )
+                        )
+                self.last_error = None
+                return findings
+            except ZapError as exc:
+                self.last_error = str(exc)
+                if attempt < max_attempts and _is_retryable_zap_error(exc):
+                    logger.warning(
+                        "Transient ZAP scan failure for %s (attempt %s/%s): %s. Retrying.",
+                        target_url,
+                        attempt,
+                        max_attempts,
+                        exc,
                     )
-            return findings
-        except ZapError as exc:
-            self.last_error = str(exc)
-            logger.error("ZAP scan failed for %s: %s", target_url, exc)
-            return []
+                    await asyncio.sleep(2)
+                    continue
+                logger.error("ZAP scan failed for %s: %s", target_url, exc)
+                return []
+        return []
 
 
 async def _apply_auth_headers(
@@ -190,3 +209,18 @@ def _parse_default_auth_header(value: Optional[str]) -> Optional[Dict[str, str]]
         return None
 
     return {header_name: header_value}
+
+
+def _is_retryable_zap_error(error: ZapError) -> bool:
+    detail = str(error).lower()
+    if error.kind == "timeout":
+        return True
+    markers = (
+        "readerror",
+        "connecterror",
+        "brokenresourceerror",
+        "connection reset",
+        "temporarily unavailable",
+        "zap daemon did not become ready",
+    )
+    return any(marker in detail for marker in markers)

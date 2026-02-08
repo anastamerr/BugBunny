@@ -57,6 +57,22 @@ class DummyZap:
         return None
 
 
+class FlakyZap:
+    _attempt = 0
+
+    def __init__(self, alerts):
+        self._alerts = alerts
+
+    async def __aenter__(self):
+        FlakyZap._attempt += 1
+        if FlakyZap._attempt == 1:
+            raise ZapError("ZAP API error: ReadError('')")
+        return DummyZap(self._alerts)
+
+    async def __aexit__(self, exc_type, exc, tb):  # noqa: ANN001
+        return None
+
+
 @pytest.mark.asyncio
 async def test_scan_parses_alerts(monkeypatch):
     alerts = [
@@ -117,3 +133,45 @@ async def test_scan_handles_zap_error(monkeypatch):
 
     assert findings == []
     assert runner.last_error is not None
+
+
+@pytest.mark.asyncio
+async def test_scan_retries_once_on_transient_zap_error(monkeypatch):
+    alerts = [
+        {
+            "alertId": "100",
+            "alert": "One",
+            "risk": "Low",
+            "confidence": "Low",
+            "url": "https://example.com/a",
+            "description": "Example",
+        }
+    ]
+    FlakyZap._attempt = 0
+
+    monkeypatch.setattr(
+        "src.services.scanner.dast_runner.ZapDockerSession",
+        lambda **kwargs: FlakyZap(alerts),
+    )
+    monkeypatch.setattr(
+        "src.services.scanner.dast_runner.is_docker_available",
+        lambda: True,
+    )
+    monkeypatch.setattr(
+        "src.services.scanner.dast_runner.asyncio.sleep",
+        lambda _seconds: DummyAwaitable(),
+    )
+
+    runner = DASTRunner()
+    findings = await runner.scan("https://example.com")
+
+    assert len(findings) == 1
+    assert findings[0].template_id == "100"
+    assert runner.last_error is None
+
+
+class DummyAwaitable:
+    def __await__(self):
+        if False:
+            yield None
+        return None

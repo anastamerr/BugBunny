@@ -89,7 +89,7 @@ class TargetedDASTRunner(BaseDASTRunner):
         return normalized
 
     def is_available(self) -> bool:
-        """Check if Docker is installed (required for ZAP container)."""
+        """Check whether a ZAP runtime is reachable from this service."""
         if self.settings.zap_base_url:
             return True
         return is_docker_available()
@@ -588,7 +588,9 @@ class TargetedDASTRunner(BaseDASTRunner):
             return []
 
         if not self.is_available():
-            self.last_error = "Docker is not available for running ZAP."
+            self.last_error = (
+                "ZAP runtime is unavailable (Docker daemon is not reachable from this service)."
+            )
             return [
                 DASTAttackResult(
                     finding_id=f"{f.rule_id}:{f.file_path}:{f.line_start}",

@@ -22,13 +22,17 @@ def dockerize_target_url(target_url: str) -> Tuple[str, Optional[str], Optional[
     if not parsed.scheme or not parsed.netloc:
         return target_url, None, None
 
+    # URL fragments are client-side only and break ZAP baseurl filtering.
+    sanitized = parsed._replace(fragment="")
+    sanitized_url = urlunparse(sanitized)
+
     hostname = parsed.hostname or ""
     if hostname not in _LOCAL_HOSTS:
-        return target_url, None, None
+        return sanitized_url, None, None
 
     port = parsed.port
     docker_netloc = f"{_DOCKER_HOSTNAME}:{port}" if port else _DOCKER_HOSTNAME
-    effective = urlunparse(parsed._replace(netloc=docker_netloc))
+    effective = urlunparse(sanitized._replace(netloc=docker_netloc))
     return effective, parsed.netloc, docker_netloc
 
 
