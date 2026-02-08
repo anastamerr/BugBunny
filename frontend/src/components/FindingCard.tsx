@@ -24,6 +24,22 @@ const severityStyles: Record<string, string> = {
   info: "badge border-sky-400/50 bg-sky-400/12 text-sky-100",
 };
 
+const cardToneStyles: Record<string, string> = {
+  critical: "bg-gradient-to-br from-rose-500/10 via-void to-void ring-1 ring-rose-500/20",
+  high: "bg-gradient-to-br from-orange-400/10 via-void to-void ring-1 ring-orange-400/20",
+  medium: "bg-gradient-to-br from-amber-300/10 via-void to-void ring-1 ring-amber-300/20",
+  low: "bg-gradient-to-br from-emerald-300/10 via-void to-void ring-1 ring-emerald-300/20",
+  info: "bg-gradient-to-br from-sky-400/10 via-void to-void ring-1 ring-sky-400/20",
+};
+
+const cardStripStyles: Record<string, string> = {
+  critical: "bg-rose-500/70",
+  high: "bg-orange-400/70",
+  medium: "bg-amber-300/70",
+  low: "bg-emerald-300/70",
+  info: "bg-sky-400/70",
+};
+
 const semgrepStyles: Record<string, string> = {
   ERROR: "badge border-amber-400/40 bg-amber-400/10 text-amber-200",
   WARNING: "badge border-white/20 bg-white/10 text-white/80",
@@ -97,6 +113,9 @@ export function FindingCard({
   const isDast = findingType === "dast";
   const aiSeverity = (finding.ai_severity || "info").toLowerCase();
   const aiBadgeClass = severityStyles[aiSeverity] || "badge";
+  const cardToneClass =
+    cardToneStyles[aiSeverity] || "bg-void ring-1 ring-white/10";
+  const cardStripClass = cardStripStyles[aiSeverity] || "bg-white/20";
   const semgrepBadgeClass = semgrepStyles[finding.semgrep_severity] || "badge";
   const evidenceItems = useMemo(
     () => (finding.evidence || []).filter(Boolean),
@@ -221,9 +240,14 @@ export function FindingCard({
   };
 
   return (
-    <div className="surface-solid p-5">
-      <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-        <div className="min-w-0 space-y-2">
+    <div
+      className={`surface-solid relative overflow-hidden p-5 shadow-[0_16px_34px_rgba(0,0,0,0.35)] ${cardToneClass}`}
+    >
+      <div
+        className={`pointer-events-none absolute inset-x-0 top-0 h-0.5 ${cardStripClass}`}
+      />
+      <div className="relative flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+        <div className="min-w-0 space-y-3">
           <div className="flex flex-wrap items-center gap-2">
             <span className="badge font-mono text-white/80">{finding.rule_id}</span>
             <span className="badge">{isDast ? "DAST" : "SAST"}</span>
@@ -249,32 +273,36 @@ export function FindingCard({
                 false positive
               </span>
             ) : null}
-            {finding.priority_score !== null && finding.priority_score !== undefined ? (
-              <span className="badge font-mono text-white/70">
-                score {finding.priority_score}
-              </span>
-            ) : null}
           </div>
 
-          <div className="text-sm font-semibold text-white">
+          <div className="rounded-card border border-white/10 bg-void/60 px-3 py-2 text-sm font-semibold text-white">
             {displayText(primaryMessage, "No rule message provided.")}
           </div>
 
           <div className="flex flex-wrap items-center gap-2 text-xs text-white/60">
-            <span className="font-mono">{locationLabel}</span>
+            <span className="badge border-white/20 bg-white/5 font-mono text-white/85">
+              {locationLabel}
+            </span>
             {meta.map((item) => (
               <span key={item} className="badge">
                 {item}
               </span>
             ))}
-            <span className="badge">confidence {formatConfidence(finding.ai_confidence)}</span>
+            <span className="badge border-white/20 bg-white/5 text-white/75">
+              confidence {formatConfidence(finding.ai_confidence)}
+            </span>
+            {finding.priority_score !== null && finding.priority_score !== undefined ? (
+              <span className="badge border-white/20 bg-white/5 font-mono text-white/70">
+                score {finding.priority_score}
+              </span>
+            ) : null}
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2 lg:justify-end">
           <button
             type="button"
-            className="btn-ghost"
+            className="btn-secondary"
             onClick={() => setIsExpanded((prev) => !prev)}
           >
             {isExpanded ? "Hide details" : "View details"}
@@ -346,10 +374,10 @@ export function FindingCard({
       </div>
 
       {isExpanded ? (
-        <div className="mt-4 border-t border-white/10 pt-4">
+        <div className="mt-5 border-t border-white/10 pt-5">
           {isDast ? (
             <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-              <div>
+              <div className="rounded-card border border-white/10 bg-void/40 p-4">
                 <div className="text-xs font-semibold uppercase tracking-[0.2em] text-white/60">
                   DAST Summary
                 </div>
@@ -419,7 +447,7 @@ export function FindingCard({
                 <p className="mt-2 text-sm text-white/80">{reasoningDisplay}</p>
               </div>
 
-              <div>
+              <div className="rounded-card border border-white/10 bg-void/40 p-4">
                 <div className="text-xs font-semibold uppercase tracking-[0.2em] text-white/60">
                   Reproduction
                 </div>
@@ -447,7 +475,7 @@ export function FindingCard({
             </div>
           ) : (
             <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-              <div>
+              <div className="rounded-card border border-white/10 bg-void/40 p-4">
                 <div className="flex items-center justify-between gap-3">
                   <div className="text-xs font-semibold uppercase tracking-[0.2em] text-white/60">
                     AI Reasoning
@@ -566,7 +594,7 @@ export function FindingCard({
                 ) : null}
               </div>
 
-              <div>
+              <div className="rounded-card border border-white/10 bg-void/40 p-4">
                 <div className="text-xs font-semibold uppercase tracking-[0.2em] text-white/60">
                   Code Context
                 </div>

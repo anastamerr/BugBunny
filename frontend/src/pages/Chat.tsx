@@ -322,29 +322,36 @@ export default function Chat() {
   }
 
   function handleKeyDown(event: React.KeyboardEvent<HTMLTextAreaElement>) {
-    if (!mentionOpen) return;
+    if (mentionOpen) {
+      if (event.key === "ArrowDown") {
+        if (mentionSuggestions.length === 0) return;
+        event.preventDefault();
+        setMentionIndex((prev) =>
+          Math.min(prev + 1, mentionSuggestions.length - 1)
+        );
+        return;
+      }
+      if (event.key === "ArrowUp") {
+        if (mentionSuggestions.length === 0) return;
+        event.preventDefault();
+        setMentionIndex((prev) => Math.max(prev - 1, 0));
+        return;
+      }
+      if (event.key === "Enter" && mentionSuggestions.length > 0) {
+        event.preventDefault();
+        handleSelectMention(mentionSuggestions[mentionIndex]);
+        return;
+      }
+      if (event.key === "Escape") {
+        closeMention();
+        return;
+      }
+    }
 
-    if (event.key === "ArrowDown") {
-      if (mentionSuggestions.length === 0) return;
+    if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
-      setMentionIndex((prev) =>
-        Math.min(prev + 1, mentionSuggestions.length - 1)
-      );
-      return;
-    }
-    if (event.key === "ArrowUp") {
-      if (mentionSuggestions.length === 0) return;
-      event.preventDefault();
-      setMentionIndex((prev) => Math.max(prev - 1, 0));
-      return;
-    }
-    if (event.key === "Enter" && mentionSuggestions.length > 0) {
-      event.preventDefault();
-      handleSelectMention(mentionSuggestions[mentionIndex]);
-      return;
-    }
-    if (event.key === "Escape") {
-      closeMention();
+      if (isSending) return;
+      void sendMessage();
     }
   }
 
@@ -431,8 +438,7 @@ export default function Chat() {
     }
   }
 
-  async function onSubmit(e: FormEvent) {
-    e.preventDefault();
+  async function sendMessage() {
     if (isSending) return;
     const text = input.trim();
     if (!text) return;
@@ -471,6 +477,11 @@ export default function Chat() {
       abortRef.current = null;
       assistantIndexRef.current = null;
     }
+  }
+
+  async function onSubmit(e: FormEvent) {
+    e.preventDefault();
+    await sendMessage();
   }
 
   function stopStreaming() {
