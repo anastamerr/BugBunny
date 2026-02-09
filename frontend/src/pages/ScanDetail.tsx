@@ -21,12 +21,17 @@ import { pushToast } from "../components/feedback/toastBus";
 
 function formatReduction(scan: Scan) {
   if (!scan.total_findings) return "No findings yet";
+  const isCombined = scan.scan_type === "both";
+  const effective = isCombined
+    ? (scan.dast_confirmed_count ?? 0)
+    : scan.filtered_findings;
   const ratio =
     scan.total_findings > 0
-      ? 1 - scan.filtered_findings / scan.total_findings
+      ? 1 - effective / scan.total_findings
       : 0;
   const pct = Math.round(Math.max(0, Math.min(1, ratio)) * 100);
-  return `${scan.total_findings} to ${scan.filtered_findings} (${pct}% filtered)`;
+  const label = isCombined ? "verified" : "filtered";
+  return `${scan.total_findings} to ${effective} (${pct}% ${label})`;
 }
 
 export default function ScanDetail() {
@@ -269,9 +274,12 @@ export default function ScanDetail() {
   const stats = useMemo(() => {
     const total = scan?.total_findings ?? 0;
     const filtered = scan?.filtered_findings ?? 0;
-    const ratio = total ? 1 - filtered / total : 0;
+    const confirmed = scan?.dast_confirmed_count ?? 0;
+    const isCombined = scan?.scan_type === "both";
+    const effective = isCombined ? confirmed : filtered;
+    const ratio = total ? 1 - effective / total : 0;
     const pct = Math.round(Math.max(0, Math.min(1, ratio)) * 100);
-    return { total, filtered, pct };
+    return { total, filtered, confirmed, pct, isCombined };
   }, [scan]);
 
   const isDastEnabled = scan?.scan_type !== "sast";
@@ -754,11 +762,16 @@ export default function ScanDetail() {
         </div>
         <div className="surface-solid p-5">
           <div className="text-xs font-semibold uppercase tracking-[0.2em] text-white/60">
-            Filtered Issues
+            {stats.isCombined ? "Verified Issues" : "Filtered Issues"}
           </div>
           <div className="mt-2 text-2xl font-extrabold text-white">
-            {stats.filtered}
+            {stats.isCombined ? stats.confirmed : stats.filtered}
           </div>
+          {stats.isCombined ? (
+            <div className="mt-1 text-xs text-white/50">
+              {stats.filtered} after AI triage
+            </div>
+          ) : null}
         </div>
         <div className="surface-solid p-5">
           <div className="text-xs font-semibold uppercase tracking-[0.2em] text-white/60">
