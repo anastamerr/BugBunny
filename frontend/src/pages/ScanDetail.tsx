@@ -768,7 +768,21 @@ export default function ScanDetail() {
             {stats.pct}%
           </div>
         </div>
-        {isDastEnabled ? (
+        {scan?.scan_type === "both" ? (
+          <div className="surface-solid p-5">
+            <div className="text-xs font-semibold uppercase tracking-[0.2em] text-white/60">
+              DAST Confirmed
+            </div>
+            <div className="mt-2 text-2xl font-extrabold text-white">
+              {scan?.dast_confirmed_count ?? 0}
+            </div>
+            <div className="mt-1 text-xs text-white/50">
+              {(scan?.dast_findings ?? 0) > 0
+                ? `${scan.dast_findings} DAST alert${scan.dast_findings === 1 ? "" : "s"}`
+                : ""}
+            </div>
+          </div>
+        ) : scan?.scan_type === "dast" ? (
           <div className="surface-solid p-5">
             <div className="text-xs font-semibold uppercase tracking-[0.2em] text-white/60">
               DAST Findings
